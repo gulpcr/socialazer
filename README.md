@@ -21,3 +21,7 @@ No Input needed
 POST http://localhost:PORT/api/v1/generate-reel
 
 No Input Needed.
+
+To get the generated reel:
+
+GET http://localhost:3000/api/v1/status/:renderId
