@@ -1,0 +1,36 @@
+// src/index.js
+require('dotenv').config();
+const express = require("express");
+const scraperRoutes = require('./routes/scraper.routes');
+const reelscriptRoutes = require('./routes/script.routes');
+const reelgenRoutes = require('./routes/reelgen.routes');
+const soraRoutes = require('./routes/sora.routes.js');
+
+
+const app = express();
+const PORT = process.env.PORT;
+
+// Middleware to parse JSON
+app.use(express.json());
+
+// Scrape Website Routes
+app.use('/api/v1', scraperRoutes);
+// Reel Script Routes
+app.use('/api/v1', reelscriptRoutes);
+// Reel Gen Routes
+app.use('/api/v1', reelgenRoutes);
+
+/**
+ * Mount Sora routes
+ */
+app.use('/api/v1', soraRoutes);
+
+// Simple root endpoint
+app.get("/", (req, res) => {
+  res.send("Express app is running!");
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
