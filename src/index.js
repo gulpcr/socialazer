@@ -6,6 +6,8 @@ const scraperRoutes = require('./routes/scraper.routes');
 const reelscriptRoutes = require('./routes/script.routes');
 const reelgenRoutes = require('./routes/reelgen.routes');
 const soraRoutes = require('./routes/sora.routes.js');
+const configRoutes = require('./routes/config.routes.js');
+const infoRoutes = require('./routes/info.routes.js');
 
 
 const app = express();
@@ -19,16 +21,18 @@ app.use(cors());
 
 // Middleware to parse JSON
 app.use(express.json());
+
 // Scrape Website Routes
 app.use('/api/v1', scraperRoutes);
+// Config Routes
+app.use('/api/v1', configRoutes);
+// Info Routes
+app.use('/api/v1', infoRoutes);
 // Reel Script Routes
 app.use('/api/v1', reelscriptRoutes);
 // Reel Gen Routes
 app.use('/api/v1', reelgenRoutes);
-
-/**
- * Mount Sora routes
- */
+// Sora routes
 app.use('/api/v1', soraRoutes);
 
 // Simple root endpoint

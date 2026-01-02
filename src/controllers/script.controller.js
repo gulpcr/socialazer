@@ -4,7 +4,21 @@ class ScriptController {
   // 1. Generate new script (POST)
   async generateScript(req, res) {
     try {
-      const result = await scriptService.processAndGenerateScript();
+      // Extract configuration from request body with defaults
+      const {
+        channel = 'instagram',    // instagram, youtube, facebook, linkedin
+        duration = 30,            // 15, 30, 60
+        adType = 'awareness',     // awareness, sales, traffic
+        dimensions = { width: 1080, height: 1920 }, // Default 9:16
+        voiceover = true          // boolean toggle
+      } = req.body;
+
+      const config = { channel, duration, adType, dimensions, voiceover };
+
+      console.log('📝 Generating script with config:', config);
+
+      // Pass config to the service to influence the LLM generation
+      const result = await scriptService.processAndGenerateScript(config);
       
       return res.status(200).json({
         success: true,
@@ -25,7 +39,6 @@ class ScriptController {
   // 2. Get current script (GET)
   async getGeneratedScript(req, res) {
     try {
-      // REFACTORED: Use service method instead of reading file directly
       const currentData = await scriptService.getCurrentScript();
 
       if (!currentData) {
@@ -55,7 +68,6 @@ class ScriptController {
     try {
       const updates = req.body;
       
-      // Basic validation
       if (!updates || Object.keys(updates).length === 0) {
         return res.status(400).json({
           success: false,
@@ -63,7 +75,6 @@ class ScriptController {
         });
       }
 
-      // Calls the service which does: Read Current -> Merge -> Save
       const result = await scriptService.updateScript(updates);
 
       return res.status(200).json({

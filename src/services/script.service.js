@@ -1,20 +1,17 @@
-// src/services/script.service.js
 const fs = require('fs').promises;
 const path = require('path');
 const Papa = require('papaparse');
 const OpenAI = require('openai');
+const configService = require('./config.service'); // Import the ConfigService
 
 class ScriptService {
   constructor() {
     this.scrapedCsvPath = path.join(__dirname, '../../src/scraped.csv');
     this.scriptCsvPath = path.join(__dirname, '../../src/script.csv');
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    this.elevenlabsVoiceId = process.env.ELEVENLABS_VOICE_ID || 'NDTYOmYEjbDIVCKB35i3';
+    this.elevenlabsVoiceId = process.env.ELEVENLABS_VOICE_ID;
   }
 
-  /**
-   * Reads the scraped CSV and parses the inner JSON data
-   */
   async readScrapedData() {
     try {
       const csvContent = await fs.readFile(this.scrapedCsvPath, 'utf-8');
@@ -43,76 +40,94 @@ class ScriptService {
     }
   }
 
-  async generateScriptWithGPT(scrapedData) {
+  /**
+   * Generates prompt based on User Configuration + Scraped Data
+   */
+  async generateScriptWithGPT(scrapedData, config) {
     try {
-      // 1. Prepare Context from Scraper Data
+      // 1. Prepare Context from Scraped Data
       const brandColors = scrapedData.brandColors || ['#000000', '#ffffff'];
       const primaryColor = brandColors[0];
       const secondaryColor = brandColors[1] || brandColors[0];
       const brandName = scrapedData.brandName || 'Our Brand';
       
-      // Filter images to give GPT a clean list with context
       const availableImages = (scrapedData.adReadyImages || []).map(img => ({
         url: img.url,
         context: img.context || 'general',
         bestUseCase: img.bestUseCase
       }));
 
-      // 2. Construct Enhanced Prompt
+      // 2. Map Config to Prompt Logic
+      const duration = parseInt(config.duration || 30);
+      const isShortForm = duration <= 15;
+      
+      // Estimated specs
+      const wordCount = Math.floor(duration * 2.5); // ~2.5 words per second
+      const sceneCount = isShortForm ? '3-4' : '5-8';
+      
+      // Voiceover instruction
+      const voiceoverInstruction = config.voiceover 
+        ? `Generate a compelling voiceover script (approx ${wordCount} words).`
+        : `NO VOICEOVER. The video relies entirely on Kinetic Typography (text overlays) to tell the story.`;
+
+      // Channel nuance
+      let channelNuance = '';
+      if (config.channel.includes('instagram') || config.channel.includes('tiktok')) {
+        channelNuance = 'Fast-paced, high energy, visual hook in the first 3 seconds.';
+      } else if (config.channel.includes('linkedin')) {
+        channelNuance = 'Professional, value-driven, authoritative tone.';
+      } else {
+        channelNuance = 'Engaging, clear, standard social media pacing.';
+      }
+
+      // 3. Construct Enhanced Prompt
       const systemPrompt = `You are an expert video director for the brand "${brandName}".
       
-Target Audience: ${scrapedData.targetAudience}
-Tone: ${scrapedData.emotionalTone}
-Value Prop: ${scrapedData.valueProposition}
+CAMPAIGN CONFIG:
+- Goal: ${config.adType} (Optimize script for this outcome)
+- Platform: ${config.channel}
+- Duration: ${duration} seconds
+- Tone: ${scrapedData.emotionalTone}
+- Audience: ${scrapedData.targetAudience}
 
-Your goal is to generate a JSON video script for Creatomate.
-Total Duration: 20-30 seconds.
-Structure: 4-6 Scenes.
+INSTRUCTIONS:
+${channelNuance}
+${voiceoverInstruction}
+Structure: ${sceneCount} Scenes.
 
 AVAILABLE ASSETS:
 Colors: Primary ${primaryColor}, Secondary ${secondaryColor}
 Images: ${JSON.stringify(availableImages)}
 
 RULES:
-1. "start" times must be sequential (e.g., 0, 5, 10).
-2. Use "hero" or "logo" images for the intro (Scene 1).
+1. "start" times must be sequential.
+2. Scene 1 MUST be a "hook" relevant to ${config.adType}.
 3. Use "product" or "feature" images for the middle scenes.
-4. Match the voiceover text to the ${scrapedData.emotionalTone} tone.
-5. Text overlays must match the voiceover keywords.
-6. Use the provided Hex codes for text styles.
-7. CRITICAL FINAL SCENE: The script MUST end with a dedicated scene displaying ONLY the Brand Name ("${brandName}"). For this specific element, set the style "background" to "#FFFFFF" (white) and the "color" (text color) to "${primaryColor}". Do not include an image in this final scene.`;
+4. Text overlays must be punchy and readable.
+5. CRITICAL FINAL SCENE: End with a scene displaying ONLY the Brand Name "${brandName}" with background: #FFFFFF and color: ${primaryColor}. No image in final scene.
+6. Return JSON matching the structure requested.`;
 
-      const userPrompt = `Create a sequential marketing video script.
+      const userPrompt = `Create a ${duration}-second video script for ${config.channel}.
 
-Return ONLY valid JSON with this structure:
+Return ONLY valid JSON:
 {
   "output_format": "mp4",
-  "width": 1920,
-  "height": 1080,
+  "width": ${config.dimensions.width},
+  "height": ${config.dimensions.height},
   "elements": [
-    {
-      "type": "voiceover",
-      "text": "Script line here...",
-      "start": 0
-    },
+    ${config.voiceover ? `{ "type": "voiceover", "text": "Spoken words...", "start": 0 },` : ''}
     {
       "type": "image",
-      "url": "URL_FROM_AVAILABLE_ASSETS",
+      "url": "URL_FROM_ASSETS",
       "start": 0,
-      "duration": 5,
-      "animation": { "in": "fade", "duration": 1 }
+      "duration": 4
     },
     {
       "type": "text",
       "text": "OVERLAY TEXT",
       "start": 0,
-      "duration": 5,
-      "style": {
-        "color": "${primaryColor}",
-        "background": "${secondaryColor}",
-        "font": "Montserrat",
-        "size": 50
-      }
+      "duration": 4,
+      "style": { "color": "${primaryColor}", "background": "${secondaryColor}" }
     }
   ]
 }`;
@@ -130,25 +145,30 @@ Return ONLY valid JSON with this structure:
       const scriptContent = completion.choices[0].message.content;
       const jsonScript = JSON.parse(scriptContent);
 
-      // 3. Post-Process: Add Audio Configuration
+      // 4. Post-Process
       if (jsonScript.elements && Array.isArray(jsonScript.elements)) {
         const processedElements = [];
         
         jsonScript.elements.forEach((element, index) => {
+          // Handle Voiceover logic
           if (element.type === 'voiceover') {
-            processedElements.push({
-              name: `Voiceover-${index}`,
-              type: 'audio',
-              track: 1,
-              time: element.start || 0,
-              source: element.text,
-              provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.5 similarity_boost=0.75`
-            });
+            if (config.voiceover) {
+              processedElements.push({
+                name: `Voiceover-${index}`,
+                type: 'audio',
+                track: 1,
+                time: element.start || 0,
+                source: element.text,
+                provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.5 similarity_boost=0.75`
+              });
+            } 
+            // If config.voiceover is false, we simply skip adding this element
           } else {
-            // Ensure images have valid URLs from our scraped list
+            // Validation for Images
             if (element.type === 'image') {
               const isValid = availableImages.some(img => img.url === element.url);
               if (!isValid && availableImages.length > 0) {
+                // Fallback to best available image if LLM hallucinates a URL
                 element.url = availableImages[0].url;
               }
             }
@@ -158,6 +178,10 @@ Return ONLY valid JSON with this structure:
         
         jsonScript.elements = processedElements;
       }
+
+      // Ensure dimensions are set from config
+      jsonScript.width = config.dimensions.width;
+      jsonScript.height = config.dimensions.height;
 
       return jsonScript;
     } catch (error) {
@@ -221,6 +245,13 @@ Return ONLY valid JSON with this structure:
         throw new Error('No existing script found to patch.');
       }
 
+      // --- VALIDATION START ---
+      // Prevent corruption: If elements are being updated, ensure it's still an Array
+      if (incomingChanges.elements && !Array.isArray(incomingChanges.elements)) {
+        throw new Error("Invalid update: 'elements' must be an array.");
+      }
+      // --- VALIDATION END ---
+
       const updatedScript = {
         ...currentData.script,
         ...incomingChanges
@@ -241,10 +272,22 @@ Return ONLY valid JSON with this structure:
     }
   }
   
+  // UPDATED: Now reads from files instead of args
   async processAndGenerateScript() {
     try {
+      // 1. Read Scraped Data (scraped.csv)
       const scrapedData = await this.readScrapedData();
-      const generatedScript = await this.generateScriptWithGPT(scrapedData);
+      
+      // 2. Read Config Data (config.csv) via Service
+      // This ensures we pick up the latest user settings
+      const config = await configService.getConfig();
+
+      console.log('🤖 Generating script with Config:', JSON.stringify(config, null, 2));
+
+      // 3. Generate with LLM
+      const generatedScript = await this.generateScriptWithGPT(scrapedData, config);
+      
+      // 4. Save result
       const saveResult = await this.saveScriptToCsv(generatedScript);
       
       return {
