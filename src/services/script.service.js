@@ -1,23 +1,40 @@
+// src/services/script.service.js
 const fs = require('fs').promises;
 const path = require('path');
 const Papa = require('papaparse');
+const OpenAI = require('openai');
 
 class ScriptService {
   constructor() {
     this.scrapedCsvPath = path.join(__dirname, '../../src/scraped.csv');
     this.scriptCsvPath = path.join(__dirname, '../../src/script.csv');
-    this.openaiApiKey = process.env.OPENAI_API_KEY;
-    this.elevenlabsVoiceId = process.env.ELEVENLABS_VOICE_ID || 'XrExE9yKIg1WjnnlVkGX';
+    this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    this.elevenlabsVoiceId = process.env.ELEVENLABS_VOICE_ID || 'NDTYOmYEjbDIVCKB35i3';
   }
 
-  async readScrapedCsv() {
+  /**
+   * Reads the scraped CSV and parses the inner JSON data
+   */
+  async readScrapedData() {
     try {
       const csvContent = await fs.readFile(this.scrapedCsvPath, 'utf-8');
+      
       return new Promise((resolve, reject) => {
         Papa.parse(csvContent, {
           header: true,
           skipEmptyLines: true,
-          complete: (results) => resolve(results.data),
+          complete: (results) => {
+            if (results.data && results.data.length > 0 && results.data[0].data) {
+              try {
+                const parsedData = JSON.parse(results.data[0].data);
+                resolve(parsedData);
+              } catch (e) {
+                reject(new Error('Failed to parse inner JSON from scraped CSV'));
+              }
+            } else {
+              reject(new Error('No valid data found in scraped CSV'));
+            }
+          },
           error: (error) => reject(error)
         });
       });
@@ -28,148 +45,113 @@ class ScriptService {
 
   async generateScriptWithGPT(scrapedData) {
     try {
-      const prompt = `You are a video script generator for Creatomate RenderScript API. Generate a sequential marketing reel script with voiceovers.
+      // 1. Prepare Context from Scraper Data
+      const brandColors = scrapedData.brandColors || ['#000000', '#ffffff'];
+      const primaryColor = brandColors[0];
+      const secondaryColor = brandColors[1] || brandColors[0];
+      const brandName = scrapedData.brandName || 'Our Brand';
+      
+      // Filter images to give GPT a clean list with context
+      const availableImages = (scrapedData.adReadyImages || []).map(img => ({
+        url: img.url,
+        context: img.context || 'general',
+        bestUseCase: img.bestUseCase
+      }));
 
-Input data: ${JSON.stringify(scrapedData)}
+      // 2. Construct Enhanced Prompt
+      const systemPrompt = `You are an expert video director for the brand "${brandName}".
+      
+Target Audience: ${scrapedData.targetAudience}
+Tone: ${scrapedData.emotionalTone}
+Value Prop: ${scrapedData.valueProposition}
 
-CRITICAL REQUIREMENTS:
-1. Create a SEQUENTIAL video where scenes appear ONE AFTER ANOTHER
-2. Total duration should be 20-30 seconds
-3. Each scene should be 4-5 seconds long
-4. Use "start" field to set when each element begins (e.g., 0, 5, 10, 15, 20)
-5. Use only the image URLs provided in the input data
-6. For EACH text element, create a corresponding voiceover element
-7. Format each element like this:
+Your goal is to generate a JSON video script for Creatomate.
+Total Duration: 20-30 seconds.
+Structure: 4-6 Scenes.
 
-For voiceover:
-{
-  "type": "voiceover",
-  "text": "The actual text to be spoken",
-  "start": 0,
-  "duration": 5
-}
+AVAILABLE ASSETS:
+Colors: Primary ${primaryColor}, Secondary ${secondaryColor}
+Images: ${JSON.stringify(availableImages)}
 
-For image:
-{
-  "type": "image",
-  "url": "actual-image-url-from-input",
-  "start": 0,
-  "duration": 5,
-  "animation": {
-    "in": "fade",
-    "out": "fade",
-    "duration": 1
-  }
-}
+RULES:
+1. "start" times must be sequential (e.g., 0, 5, 10).
+2. Use "hero" or "logo" images for the intro (Scene 1).
+3. Use "product" or "feature" images for the middle scenes.
+4. Match the voiceover text to the ${scrapedData.emotionalTone} tone.
+5. Text overlays must match the voiceover keywords.
+6. Use the provided Hex codes for text styles.
+7. CRITICAL FINAL SCENE: The script MUST end with a dedicated scene displaying ONLY the Brand Name ("${brandName}"). For this specific element, set the style "background" to "#FFFFFF" (white) and the "color" (text color) to "${primaryColor}". Do not include an image in this final scene.`;
 
-For text overlay:
-{
-  "type": "text",
-  "text": "EXACT SAME TEXT as the voiceover - word for word",
-  "start": 0,
-  "duration": 5,
-  "style": {
-    "color": "#CE4912",
-    "font": "Montserrat",
-    "size": 48,
-    "background": "rgba(0,0,0,0.7)"
-  },
-  "animation": {
-    "in": "fade",
-    "out": "fade",
-    "duration": 1
-  }
-}
-
-8. Create 4-6 scenes that tell a story about the company
-9. Each scene = 1 image + 1 text overlay + 1 voiceover (all appearing at the SAME start time)
-10. Use brand colors: #CE4912 and #F34700
-11. Keep voiceover text concise (1-2 sentences per scene)
-
-Example structure:
-Scene 1 (0-5s): Voiceover 1 + Image 1 + Text 1
-Scene 2 (5-10s): Voiceover 2 + Image 2 + Text 2
-Scene 3 (10-15s): Voiceover 3 + Image 3 + Text 3
-Scene 4 (15-20s): Voiceover 4 + Image 4 + Text 4
+      const userPrompt = `Create a sequential marketing video script.
 
 Return ONLY valid JSON with this structure:
 {
   "output_format": "mp4",
-  "width": 1280,
-  "height": 720,
-  "elements": [...]
+  "width": 1920,
+  "height": 1080,
+  "elements": [
+    {
+      "type": "voiceover",
+      "text": "Script line here...",
+      "start": 0
+    },
+    {
+      "type": "image",
+      "url": "URL_FROM_AVAILABLE_ASSETS",
+      "start": 0,
+      "duration": 5,
+      "animation": { "in": "fade", "duration": 1 }
+    },
+    {
+      "type": "text",
+      "text": "OVERLAY TEXT",
+      "start": 0,
+      "duration": 5,
+      "style": {
+        "color": "${primaryColor}",
+        "background": "${secondaryColor}",
+        "font": "Montserrat",
+        "size": 50
+      }
+    }
+  ]
 }`;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.openaiApiKey}`
-        },
-        body: JSON.stringify({
-          model: 'gpt-4-turbo-preview',
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a video script generator. Create SEQUENTIAL scenes with proper start times. Each scene must have: 1 voiceover element, 1 image element, and 1 text element - all with the same start time. Each element must have a "start" field indicating when it appears (0, 5, 10, 15, 20, etc.).'
-            },
-            {
-              role: 'user',
-              content: prompt
-            }
-          ],
-          temperature: 0.7,
-          max_tokens: 2500
-        })
+      const completion = await this.openai.chat.completions.create({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        response_format: { type: "json_object" },
+        temperature: 0.7,
       });
 
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.statusText}`);
-      }
+      const scriptContent = completion.choices[0].message.content;
+      const jsonScript = JSON.parse(scriptContent);
 
-      const data = await response.json();
-      const scriptContent = data.choices[0].message.content.trim();
-      
-      let jsonScript;
-      try {
-        const jsonMatch = scriptContent.match(/\{[\s\S]*\}/);
-        jsonScript = jsonMatch ? JSON.parse(jsonMatch[0]) : JSON.parse(scriptContent);
-      } catch (parseError) {
-        throw new Error('Failed to parse GPT response as JSON');
-      }
-
-      // Process elements to add voiceover support
+      // 3. Post-Process: Add Audio Configuration
       if (jsonScript.elements && Array.isArray(jsonScript.elements)) {
         const processedElements = [];
         
         jsonScript.elements.forEach((element, index) => {
-          // Convert voiceover elements to Creatomate audio format
           if (element.type === 'voiceover') {
-            const audioElement = {
+            processedElements.push({
               name: `Voiceover-${index}`,
               type: 'audio',
-              track: processedElements.filter(e => e.type === 'audio').length + 1,
+              track: 1,
               time: element.start || 0,
               source: element.text,
-              provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.75`
-            };
-            // Don't set duration - let ElevenLabs determine natural speech length
-            processedElements.push(audioElement);
-          }
-          // Keep image and text elements as is (will be converted by reelgen.service.js)
-          else if (element.type === 'image' || element.type === 'text') {
-            processedElements.push(element);
-          }
-          // Remove any other audio elements with invalid URLs
-          else if (element.type === 'audio') {
-            const url = element.url || element.source;
-            if (url && 
-                !url.includes('example.com') && 
-                !url.includes('placeholder') &&
-                (url.startsWith('http://') || url.startsWith('https://'))) {
-              processedElements.push(element);
-            }
+              provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.5 similarity_boost=0.75`
+            });
           } else {
+            // Ensure images have valid URLs from our scraped list
+            if (element.type === 'image') {
+              const isValid = availableImages.some(img => img.url === element.url);
+              if (!isValid && availableImages.length > 0) {
+                element.url = availableImages[0].url;
+              }
+            }
             processedElements.push(element);
           }
         });
@@ -193,26 +175,14 @@ Return ONLY valid JSON with this structure:
 
       const csv = Papa.unparse(csvData);
       await fs.writeFile(this.scriptCsvPath, csv, 'utf-8');
-      
       return { success: true, path: this.scriptCsvPath };
     } catch (error) {
       throw new Error(`Failed to save script.csv: ${error.message}`);
     }
   }
 
-  /**
-   * 1. GET CURRENT SCRIPT
-   * Reads the CSV and parses the JSON from the last entry.
-   * This is used by the Controller (GET) and by updateScript (PATCH).
-   */
   async getCurrentScript() {
     try {
-      const results = await this.readScrapedCsv(); // Wait... readScrapedCsv? No, we need readScriptCsv.
-      // NOTE: Your original code had readScrapedCsv. We need a reader for script.csv.
-      // Let's implement a specific reader for the script.csv if not present, 
-      // or reuse the logic if you have one.
-      
-      // Implementation of reading script.csv:
       const csvContent = await fs.readFile(this.scriptCsvPath, 'utf-8').catch(() => '');
       if (!csvContent) return null;
 
@@ -222,17 +192,15 @@ Return ONLY valid JSON with this structure:
           skipEmptyLines: true,
           complete: (results) => {
             if (results.data && results.data.length > 0) {
-              // Get the most recent entry
               const lastEntry = results.data[results.data.length - 1];
               try {
-                // Return the parsed JSON object and metadata
                 resolve({
                   timestamp: lastEntry.timestamp,
                   status: lastEntry.status,
                   script: JSON.parse(lastEntry.script)
                 });
               } catch (e) {
-                resolve(null); // content might be corrupted or empty
+                resolve(null);
               }
             } else {
               resolve(null);
@@ -242,44 +210,22 @@ Return ONLY valid JSON with this structure:
         });
       });
     } catch (error) {
-      // If file doesn't exist yet, return null
       return null;
     }
   }
 
-  /**
-   * 2. UPDATE SCRIPT (PATCH LOGIC)
-   * Reads current -> Merges changes -> Validates -> Saves
-   */
   async updateScript(incomingChanges) {
     try {
-      // STEP 1: READ CURRENT
       const currentData = await this.getCurrentScript();
-      
       if (!currentData || !currentData.script) {
-        throw new Error('No existing script found to patch. Please generate one first.');
+        throw new Error('No existing script found to patch.');
       }
 
-      const originalScript = currentData.script;
-
-      // STEP 2: MERGE
-      // We perform a shallow merge. 
-      // If incomingChanges has 'elements', it replaces the old 'elements'.
-      // If incomingChanges has 'width', it replaces the old 'width'.
-      // Everything else is preserved.
       const updatedScript = {
-        ...originalScript,
+        ...currentData.script,
         ...incomingChanges
       };
 
-      // STEP 3: VALIDATE
-      // Ensure the merge didn't break the core structure
-      if (!updatedScript.elements || !Array.isArray(updatedScript.elements)) {
-        throw new Error('Invalid update: Resulting script is missing "elements" array');
-      }
-
-      // STEP 4: SAVE
-      // We overwrite the CSV with the new merged version
       const csvData = [{
         timestamp: new Date().toISOString(),
         script: JSON.stringify(updatedScript),
@@ -289,12 +235,7 @@ Return ONLY valid JSON with this structure:
       const csv = Papa.unparse(csvData);
       await fs.writeFile(this.scriptCsvPath, csv, 'utf-8');
       
-      return {
-        success: true,
-        message: 'Script patched successfully',
-        script: updatedScript
-      };
-
+      return { success: true, script: updatedScript };
     } catch (error) {
       throw new Error(`Failed to update script: ${error.message}`);
     }
@@ -302,7 +243,7 @@ Return ONLY valid JSON with this structure:
   
   async processAndGenerateScript() {
     try {
-      const scrapedData = await this.readScrapedCsv();
+      const scrapedData = await this.readScrapedData();
       const generatedScript = await this.generateScriptWithGPT(scrapedData);
       const saveResult = await this.saveScriptToCsv(generatedScript);
       
@@ -312,6 +253,7 @@ Return ONLY valid JSON with this structure:
         saved: saveResult
       };
     } catch (error) {
+      console.error("Script Generation Error:", error);
       throw error;
     }
   }
