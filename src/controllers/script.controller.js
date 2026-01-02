@@ -1,6 +1,7 @@
 const scriptService = require('../services/script.service');
 
 class ScriptController {
+  // 1. Generate new script (POST)
   async generateScript(req, res) {
     try {
       const result = await scriptService.processAndGenerateScript();
@@ -21,40 +22,22 @@ class ScriptController {
     }
   }
 
+  // 2. Get current script (GET)
   async getGeneratedScript(req, res) {
     try {
-      const fs = require('fs').promises;
-      const path = require('path');
-      const Papa = require('papaparse');
-      
-      const scriptCsvPath = path.join(__dirname, '../../src/script.csv');
-      const csvContent = await fs.readFile(scriptCsvPath, 'utf-8');
-      
-      const parsed = await new Promise((resolve, reject) => {
-        Papa.parse(csvContent, {
-          header: true,
-          skipEmptyLines: true,
-          complete: (results) => resolve(results.data),
-          error: (error) => reject(error)
-        });
-      });
+      // REFACTORED: Use service method instead of reading file directly
+      const currentData = await scriptService.getCurrentScript();
 
-      if (parsed.length === 0) {
+      if (!currentData) {
         return res.status(404).json({
           success: false,
-          message: 'No script found'
+          message: 'No script found. Please generate one first.'
         });
       }
-
-      const latestScript = parsed[parsed.length - 1];
       
       return res.status(200).json({
         success: true,
-        data: {
-          timestamp: latestScript.timestamp,
-          script: JSON.parse(latestScript.script),
-          status: latestScript.status
-        }
+        data: currentData
       });
     } catch (error) {
       console.error('Error in getGeneratedScript:', error);
@@ -62,6 +45,39 @@ class ScriptController {
       return res.status(500).json({
         success: false,
         message: 'Failed to retrieve script',
+        error: error.message
+      });
+    }
+  }
+
+  // 3. Update existing script (PATCH)
+  async updateScript(req, res) {
+    try {
+      const updates = req.body;
+      
+      // Basic validation
+      if (!updates || Object.keys(updates).length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'No update data provided'
+        });
+      }
+
+      // Calls the service which does: Read Current -> Merge -> Save
+      const result = await scriptService.updateScript(updates);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Script updated successfully',
+        data: result
+      });
+
+    } catch (error) {
+      console.error('Error in updateScript:', error);
+      
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to update script',
         error: error.message
       });
     }

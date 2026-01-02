@@ -200,6 +200,106 @@ Return ONLY valid JSON with this structure:
     }
   }
 
+  /**
+   * 1. GET CURRENT SCRIPT
+   * Reads the CSV and parses the JSON from the last entry.
+   * This is used by the Controller (GET) and by updateScript (PATCH).
+   */
+  async getCurrentScript() {
+    try {
+      const results = await this.readScrapedCsv(); // Wait... readScrapedCsv? No, we need readScriptCsv.
+      // NOTE: Your original code had readScrapedCsv. We need a reader for script.csv.
+      // Let's implement a specific reader for the script.csv if not present, 
+      // or reuse the logic if you have one.
+      
+      // Implementation of reading script.csv:
+      const csvContent = await fs.readFile(this.scriptCsvPath, 'utf-8').catch(() => '');
+      if (!csvContent) return null;
+
+      return new Promise((resolve, reject) => {
+        Papa.parse(csvContent, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            if (results.data && results.data.length > 0) {
+              // Get the most recent entry
+              const lastEntry = results.data[results.data.length - 1];
+              try {
+                // Return the parsed JSON object and metadata
+                resolve({
+                  timestamp: lastEntry.timestamp,
+                  status: lastEntry.status,
+                  script: JSON.parse(lastEntry.script)
+                });
+              } catch (e) {
+                resolve(null); // content might be corrupted or empty
+              }
+            } else {
+              resolve(null);
+            }
+          },
+          error: (error) => reject(error)
+        });
+      });
+    } catch (error) {
+      // If file doesn't exist yet, return null
+      return null;
+    }
+  }
+
+  /**
+   * 2. UPDATE SCRIPT (PATCH LOGIC)
+   * Reads current -> Merges changes -> Validates -> Saves
+   */
+  async updateScript(incomingChanges) {
+    try {
+      // STEP 1: READ CURRENT
+      const currentData = await this.getCurrentScript();
+      
+      if (!currentData || !currentData.script) {
+        throw new Error('No existing script found to patch. Please generate one first.');
+      }
+
+      const originalScript = currentData.script;
+
+      // STEP 2: MERGE
+      // We perform a shallow merge. 
+      // If incomingChanges has 'elements', it replaces the old 'elements'.
+      // If incomingChanges has 'width', it replaces the old 'width'.
+      // Everything else is preserved.
+      const updatedScript = {
+        ...originalScript,
+        ...incomingChanges
+      };
+
+      // STEP 3: VALIDATE
+      // Ensure the merge didn't break the core structure
+      if (!updatedScript.elements || !Array.isArray(updatedScript.elements)) {
+        throw new Error('Invalid update: Resulting script is missing "elements" array');
+      }
+
+      // STEP 4: SAVE
+      // We overwrite the CSV with the new merged version
+      const csvData = [{
+        timestamp: new Date().toISOString(),
+        script: JSON.stringify(updatedScript),
+        status: 'user-updated' 
+      }];
+
+      const csv = Papa.unparse(csvData);
+      await fs.writeFile(this.scriptCsvPath, csv, 'utf-8');
+      
+      return {
+        success: true,
+        message: 'Script patched successfully',
+        script: updatedScript
+      };
+
+    } catch (error) {
+      throw new Error(`Failed to update script: ${error.message}`);
+    }
+  }
+  
   async processAndGenerateScript() {
     try {
       const scrapedData = await this.readScrapedCsv();
