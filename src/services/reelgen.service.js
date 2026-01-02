@@ -249,7 +249,7 @@ class ReelGenService {
         width: scriptObj.width || 1280,
         height: scriptObj.height || 720,
         duration: currentCursor,
-        render_scale: 3,
+        render_scale: 1,
         elements: creatomateElements
       };
     } catch (error) {
