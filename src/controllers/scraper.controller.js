@@ -1,3 +1,4 @@
+// src/controllers/scraper.controller.js
 const { scrapeWebsite } = require('../services/scraper.service');
 const { generateQRCode } = require('../services/qr.service');
 
@@ -6,25 +7,36 @@ async function scrapeController(req, res) {
         const { url } = req.body;
         if (!url) throw new Error('URL is required');
 
-        // Generate QR and upload
-        const qrResult = await generateQRCode(url);
-
-        // 2. Scrape website
+        // 1. Scrape website and get structured data
         const scrapeResult = await scrapeWebsite(url);
 
-        res.status(200).json({
-            success: true,
-            message: scrapeResult.message,
-            rows: scrapeResult.totalRows,
-            qr: {
-                publicUrl: qrResult.publicQrUrl,   // <- this is the correct public QR URL
+        // 2. Generate QR code (optional - can be included in response if needed)
+        let qrData = null;
+        try {
+            const qrResult = await generateQRCode(url);
+            qrData = {
+                publicUrl: qrResult.publicQrUrl,
                 urlFile: qrResult.urlFilePath
-            }
-        });
+            };
+        } catch (qrError) {
+            console.warn('QR generation failed:', qrError.message);
+            // Continue without QR if it fails
+        }
+
+        // 3. Return the formatted response
+        const response = {
+            ...scrapeResult,
+            // Optionally include QR data if needed
+            ...(qrData && { qr: qrData })
+        };
+
+        res.status(200).json(response);
     } catch (error) {
+        console.error('Scraper controller error:', error);
         res.status(400).json({
             success: false,
-            error: error.message
+            error: error.message,
+            status: 'failed'
         });
     }
 }

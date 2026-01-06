@@ -53,8 +53,23 @@ async function scrapeWebpage(url) {
   const domain = new URL(url).hostname.replace('www.', '').split('.')[0];
   const brandName = $('meta[property="og:site_name"]').attr('content') || domain.charAt(0).toUpperCase() + domain.slice(1);
 
+  // Extract logo
+  const logoUrl = $('meta[property="og:image"]').attr('content') || 
+                  $('link[rel="icon"]').attr('href') || 
+                  $('link[rel="shortcut icon"]').attr('href') || 
+                  '';
+
   // Extract raw text for context
-  const rawText = $('body').text().replace(/\s+/g, ' ').substring(0, 3000);
+  const rawText = $('body').text().replace(/\s+/g, ' ').substring(0, 5000);
+
+  // Extract headlines (h1, h2, h3)
+  const headlines = [];
+  $('h1, h2, h3').each((_, el) => {
+    const text = $(el).text().trim();
+    if (text && text.length > 3 && text.length < 150) {
+      headlines.push(text);
+    }
+  });
 
   const images = [];
   const seenUrls = new Set();
@@ -69,7 +84,7 @@ async function scrapeWebpage(url) {
   if (ogImg) {
     try {
       const full = new URL(ogImg, url).href;
-      images.push({ url: full, context: 'hero', priority: 100 });
+      images.push({ url: full, context: 'hero', priority: 100, alt: 'Hero image' });
       seenUrls.add(full);
     } catch {}
   }
@@ -99,7 +114,7 @@ async function scrapeWebpage(url) {
       let prio = 10;
       if (isProductUrl(full) || isProductUrl(alt)) prio = 50;
 
-      images.push({ url: full, context: 'content', priority: prio });
+      images.push({ url: full, context: 'content', priority: prio, alt: alt || 'Product image' });
       seenUrls.add(full);
     } catch {}
   });
@@ -110,7 +125,7 @@ async function scrapeWebpage(url) {
   const colorRegex = /#([A-Fa-f0-9]{6})\b/g;
   const brandColors = [...new Set(htmlText.match(colorRegex) || [])].slice(0, 5);
 
-  return { url, title, description, brandName, images, brandColors, rawText };
+  return { url, title, description, brandName, images, brandColors, rawText, headlines, logoUrl };
 }
 
 async function analyzeImagesForAds(images, brandName) {
@@ -137,17 +152,19 @@ async function analyzeImagesForAds(images, brandName) {
           - visualContent: Description (e.g. "Silver laptop on desk", "Movie poster for F1").
           - category: "product" (hardware/physical item), "ui" (app screenshot), "entertainment" (movie/music poster), "abstract" (backgrounds), "logo".
           - quality: "high" or "low".
+          - relevance: "high", "medium", or "low" based on commercial value.
           
           CRITICAL: 
           1. Identify "entertainment" (movie posters/album covers) correctly.
-          2. Identify "product" (phones, cars, clothes) correctly.`
+          2. Identify "product" (phones, cars, clothes) correctly.
+          3. Assess relevance for advertising purposes.`
         },
         {
           role: 'user',
           content: validImages.map(img => ({ type: 'image_url', image_url: { url: img.base64, detail: 'low' } }))
         }
       ],
-      max_tokens: 1000
+      max_tokens: 1500
     });
 
     const content = completion.choices[0].message.content.replace(/```(?:json)?/g, '').trim();
@@ -160,7 +177,7 @@ async function analyzeImagesForAds(images, brandName) {
 
   } catch (e) {
     console.error('Analysis failed', e.message);
-    return validImages.map(img => ({ url: img.url, quality: 'high', category: 'unknown', visualContent: 'Image' }));
+    return validImages.map(img => ({ url: img.url, quality: 'high', category: 'unknown', visualContent: 'Image', relevance: 'medium' }));
   }
 }
 
@@ -170,17 +187,24 @@ async function enrichWithOpenAI(scraped) {
     messages: [
       {
         role: 'system',
-        content: `Extract HARD FACTS.
-        Return JSON fields:
+        content: `Extract comprehensive content from the webpage data.
+        Return JSON with these fields:
         - brandName: Company name.
-        - keyMessages: Array of 5 specific product features found in text.
-        - description: Summary.
+        - description: Brief summary (1-2 sentences).
+        - pageType: One of "product", "landing", "blog", "homepage", "about".
+        - headlines: Array of objects with "text" and "included" (boolean, set all to true).
+        - valueProposition: Main value proposition or selling point.
+        - targetAudience: Description of target audience based on content tone and products.
+        - keyPoints: Array of 3-5 specific features, benefits, or selling points found in the text.
         
-        Do NOT invent features.`
+        Extract ONLY from the provided text. Do NOT invent information.`
       },
       {
         role: 'user',
-        content: `Title: ${scraped.title}\nRaw Text: ${scraped.rawText}`
+        content: `Title: ${scraped.title}
+Description: ${scraped.description}
+Headlines: ${scraped.headlines.join(', ')}
+Raw Text: ${scraped.rawText}`
       }
     ],
     temperature: 0.3
@@ -207,7 +231,6 @@ exports.scrapeWebsite = async url => {
   let validImages = analysis.filter(img => img.category !== 'logo' && img.quality !== 'low');
   
   const productImages = validImages.filter(img => img.category === 'product');
-  const entertainmentImages = validImages.filter(img => img.category === 'entertainment');
 
   // If we found actual products (hardware), ignore the movie posters
   if (productImages.length >= 3) {
@@ -218,20 +241,56 @@ exports.scrapeWebsite = async url => {
     validImages = validImages.filter(img => img.category !== 'logo');
   }
 
+  // Map images to desired format
+  const formattedImages = validImages.slice(0, 10).map((img, idx) => {
+    // Get original alt text from scraped images
+    const originalImage = scraped.images.find(i => i.url === img.url);
+    return {
+      url: img.url,
+      alt: originalImage?.alt || img.visualContent || 'Product image',
+      relevance: img.relevance || 'medium',
+      selected: idx < 5 // Select top 5 by default
+    };
+  });
+
+  // Process logo URL
+  let logoFullUrl = '';
+  if (scraped.logoUrl) {
+    try {
+      logoFullUrl = new URL(scraped.logoUrl, url).href;
+    } catch {
+      logoFullUrl = scraped.logoUrl;
+    }
+  }
+
   const result = {
     id: uuidv4(),
     url,
-    brandName: enrichment.brandName,
-    description: enrichment.description,
-    keyMessages: enrichment.keyMessages,
-    brandColors: scraped.brandColors,
-    adReadyImages: validImages,
-    imageCount: validImages.length
+    status: 'completed',
+    extractedContent: {
+      title: scraped.title || enrichment.brandName,
+      description: enrichment.description,
+      pageType: enrichment.pageType || 'product',
+      headlines: enrichment.headlines || [],
+      valueProposition: enrichment.valueProposition || '',
+      targetAudience: enrichment.targetAudience || '',
+      keyPoints: enrichment.keyPoints || []
+    },
+    media: {
+      images: formattedImages,
+      videos: [] // Videos can be added in future enhancement
+    },
+    branding: {
+      brandName: enrichment.brandName,
+      colors: scraped.brandColors,
+      logoUrl: logoFullUrl
+    }
   };
 
+  // Save to CSV
   const csv = 'data\n' + `"${JSON.stringify(result).replace(/"/g, '""')}"`;
   fs.writeFileSync(CSV_PATH, csv, 'utf8');
 
-  console.log(`✅ Scraped. Found ${validImages.length} relevant images.`);
+  console.log(`✅ Scraped. Found ${formattedImages.length} relevant images.`);
   return result;
 };
