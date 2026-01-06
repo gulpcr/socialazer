@@ -18,8 +18,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { VideoConfig, VideoScript } from "@/lib/api-types";
+import type { VideoConfig, VideoScript, ScriptScene } from "@/lib/api-types";
 import { useAnalyzeUrl } from "@/hooks/useAnalyzeUrl";
+import { Loader2, Sparkles } from "lucide-react";
 
 interface VideoConfigStepProps {
   config: VideoConfig;
@@ -65,17 +66,36 @@ export function VideoConfigStep({
 }: VideoConfigStepProps) {
   const [data, setData] = useState<VideoConfig>(config);
 
-  const { runGenerateScript } = useAnalyzeUrl();
+  const { runGenerateScript, loading } = useAnalyzeUrl();
 
   const GenerateScript = async () => {
     const generatedScript = await runGenerateScript(
       data.analysisId!,
       data.config
     );
+
+    const mappedScenes: ScriptScene[] = (generatedScript.data.scenes || []).map(
+      (s: any) => ({
+        id: s.id,
+        order: s.order ?? 0,
+        duration: s.duration ?? 5,
+        primaryText: s.primary_text ?? s.primaryText ?? "",
+        secondaryText: s.secondary_text ?? s.secondaryText ?? "",
+        textStyle: s.text_style ?? s.textStyle,
+        voiceOver: s.voiceOver ?? s.voice_over ?? "",
+        visuals: {
+          type: s.visuals?.type ?? "image",
+          url: s.visuals?.url ?? "",
+          animation: s.visuals?.animation ?? "none",
+        },
+        transition: s.transition ?? "cut",
+      })
+    );
+
     const mappedScript: VideoScript = {
       id: generatedScript.data.id,
-      scenes: generatedScript.data.scenes,
-      totalDuration: generatedScript.data.totalDuration,
+      scenes: mappedScenes,
+      totalDuration: generatedScript.data.totalDuration ?? 0,
     };
     onComplete(data, mappedScript);
   };
@@ -250,9 +270,19 @@ export function VideoConfigStep({
           <ArrowLeft className="h-4 w-4" />
           Back
         </Button>
-        <Button onClick={GenerateScript} className="gap-2">
-          Generate Script
-          <ArrowRight className="h-4 w-4" />
+        <Button onClick={GenerateScript} disabled={loading} className="gap-2">
+          {loading ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Generating
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-4 w-4" />
+              Generate Script
+              <ArrowRight className="h-4 w-4" />
+            </>
+          )}
         </Button>
       </div>
     </div>

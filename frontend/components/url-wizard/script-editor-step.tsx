@@ -26,7 +26,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { VideoScript, ScriptScene } from "@/lib/api-types";
-import type { Scene } from "@/lib/types";
+// import type { Scene } from "@/lib/types";
+import { ANIMATIONS, TRANSITIONS, PACINGS } from "@/lib/types";
 
 interface ScriptEditorStepProps {
   script: VideoScript;
@@ -46,7 +47,7 @@ export function ScriptEditorStep({
 
   const selectedScene = data.scenes.find((s) => s.id === selectedSceneId);
 
-  const updateScene = (sceneId: string, updates: Partial<Scene>) => {
+  const updateScene = (sceneId: string, updates: Partial<ScriptScene>) => {
     setData({
       ...data,
       scenes: data.scenes.map((s) =>
@@ -59,7 +60,8 @@ export function ScriptEditorStep({
     const newScene: ScriptScene = {
       id: `scene-${Date.now()}`,
       duration: 5,
-      text: "New Scene",
+      primaryText: "New Scene",
+      textStyle: "body",
       voiceOver: "",
       visuals: { type: "image", url: "", animation: "none" },
       order: 1,
@@ -71,7 +73,10 @@ export function ScriptEditorStep({
 
   const getWordCount = (text: string) =>
     text.trim().split(/\s+/).filter(Boolean).length;
-  const getEstimatedTime = (text: string, pacing: Scene["voiceOverPacing"]) => {
+  const getEstimatedTime = (
+    text: string,
+    pacing: ScriptScene["voiceOverPacing"]
+  ) => {
     const words = getWordCount(text);
     const wpm = pacing === "slow" ? 120 : pacing === "fast" ? 180 : 150;
     return Math.ceil((words / wpm) * 60);
@@ -173,18 +178,6 @@ export function ScriptEditorStep({
                   <div className="space-y-2">
                     <Label>Primary Text</Label>
                     <Input
-                      value={selectedScene.text ?? ""}
-                      onChange={(e) =>
-                        updateScene(selectedScene.id, {
-                          primaryText: e.target.value,
-                        })
-                      }
-                      placeholder="Main headline text"
-                    />
-                  </div>
-                  {/* <div className="space-y-2">
-                    <Label>Primary Text</Label>
-                    <Input
                       value={selectedScene.primaryText}
                       onChange={(e) =>
                         updateScene(selectedScene.id, {
@@ -212,7 +205,7 @@ export function ScriptEditorStep({
                       value={selectedScene.textStyle}
                       onValueChange={(value) =>
                         updateScene(selectedScene.id, {
-                          textStyle: value as Scene["textStyle"],
+                          textStyle: value as ScriptScene["textStyle"],
                         })
                       }
                     >
@@ -226,7 +219,7 @@ export function ScriptEditorStep({
                         <SelectItem value="cta">Call to Action</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div> */}
+                  </div>
                 </TabsContent>
 
                 <TabsContent value="voiceover" className="space-y-4">
@@ -237,8 +230,7 @@ export function ScriptEditorStep({
                         {getWordCount(selectedScene.voiceOver ?? "")} words • ~
                         {getEstimatedTime(
                           selectedScene.voiceOver ?? "",
-                          // selectedScene.voiceOverPacing ?? "normal"
-                          "normal"
+                          selectedScene.voiceOverPacing ?? "normal"
                         )}
                         s
                       </span>
@@ -257,12 +249,14 @@ export function ScriptEditorStep({
                   <div className="space-y-2">
                     <Label>Pacing</Label>
                     <div className="flex gap-2">
-                      {(["slow", "normal", "fast"] as const).map((pacing) => (
+                      {PACINGS.map((pacing) => (
                         <Button
                           key={pacing}
                           variant={
-                            // (selectedScene.voiceOverPacing ?? "normal") ===
-                            "normal" === pacing ? "default" : "outline"
+                            (selectedScene.voiceOverPacing ?? "normal") ===
+                            pacing
+                              ? "default"
+                              : "outline"
                           }
                           size="sm"
                           onClick={() =>
@@ -320,7 +314,7 @@ export function ScriptEditorStep({
                         value={selectedScene.transition ?? "cut"}
                         onValueChange={(value) =>
                           updateScene(selectedScene.id, {
-                            transition: value as Scene["transition"],
+                            transition: value as ScriptScene["transition"],
                           })
                         }
                       >
@@ -328,21 +322,25 @@ export function ScriptEditorStep({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="cut">Cut</SelectItem>
-                          <SelectItem value="fade">Fade</SelectItem>
-                          <SelectItem value="slide">Slide</SelectItem>
-                          <SelectItem value="zoom">Zoom</SelectItem>
+                          {TRANSITIONS.map((t) => (
+                            <SelectItem key={t} value={t}>
+                              {t.charAt(0).toUpperCase() + t.slice(1)}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
                     </div>
                     <div className="space-y-2">
                       <Label>Animation</Label>
                       <Select
-                        // value={selectedScene.animation ?? "none"}
-                        value={"none"}
+                        value={selectedScene.visuals?.animation ?? "none"}
                         onValueChange={(value) =>
                           updateScene(selectedScene.id, {
-                            animation: value as Scene["animation"],
+                            visuals: {
+                              ...(selectedScene.visuals ?? { type: "image" }),
+                              animation:
+                                value as ScriptScene["visuals"]["animation"],
+                            },
                           })
                         }
                       >
@@ -350,12 +348,26 @@ export function ScriptEditorStep({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="none">None</SelectItem>
-                          <SelectItem value="ken-burns">Ken Burns</SelectItem>
-                          <SelectItem value="parallax">Parallax</SelectItem>
-                          <SelectItem value="fade-in">Fade In</SelectItem>
+                          {ANIMATIONS.map((a) => (
+                            <SelectItem key={a} value={a}>
+                              {a === "none"
+                                ? "None"
+                                : a
+                                    .split("-")
+                                    .map(
+                                      (p) =>
+                                        p.charAt(0).toUpperCase() + p.slice(1)
+                                    )
+                                    .join(" ")}
+                            </SelectItem>
+                          ))}
                         </SelectContent>
                       </Select>
+                      {selectedScene.visuals?.animation === "none" && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          No animation applied
+                        </p>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-2">

@@ -10,8 +10,14 @@ import { SuggestionsStep } from "@/components/url-wizard/suggestions-step";
 import { VoiceOverStep } from "@/components/url-wizard/voice-over-step";
 import { HandoffStep } from "@/components/url-wizard/handoff-step";
 import { WizardProgress } from "@/components/url-wizard/wizard-progress";
-import type { Suggestion, ScoreMetrics, VoicePreset } from "@/lib/types";
-import { AnalysisResponse, VideoConfig, VideoScript } from "@/lib/api-types";
+import type { ScoreMetrics, VoicePreset } from "@/lib/types";
+import {
+  AnalysisResponse,
+  VideoConfig,
+  VideoScript,
+  Suggestion,
+} from "@/lib/api-types";
+import { useAnalyzeUrl } from "@/hooks/useAnalyzeUrl";
 
 const STEPS = [
   { id: 1, name: "URL Input", description: "Enter webpage URL" },
@@ -78,17 +84,10 @@ export default function CreateFromURLPage() {
     setCurrentStep(4);
   };
 
-  const handleScriptEdited = (data: VideoScript) => {
+  const { runSuggestions } = useAnalyzeUrl();
+
+  const handleScriptEdited = async (data: VideoScript) => {
     setScript(data);
-    // Generate suggestions
-    const mockSuggestions = generateMockSuggestions();
-    setSuggestions(mockSuggestions);
-    setScores({
-      engagement: 85,
-      clarity: 90,
-      brandAlignment: 75,
-      callToAction: 80,
-    });
     setCurrentStep(5);
   };
 
@@ -141,8 +140,11 @@ export default function CreateFromURLPage() {
             )}
             {currentStep === 5 && script && (
               <SuggestionsStep
+                scriptId={script.id}
                 suggestions={suggestions}
                 scores={scores}
+                setSuggestions={setSuggestions}
+                setScores={setScores}
                 onComplete={handleSuggestionsReviewed}
                 onBack={() => setCurrentStep(4)}
               />
@@ -235,43 +237,4 @@ export default function CreateFromURLPage() {
 //   };
 // }
 
-function generateMockSuggestions(): Suggestion[] {
-  return [
-    {
-      id: "sug-1",
-      priority: "high",
-      category: "cta",
-      title: "Strengthen Call to Action",
-      description:
-        "Consider adding urgency with a time-limited offer or exclusive deal.",
-      autoApplicable: true,
-    },
-    {
-      id: "sug-2",
-      priority: "medium",
-      category: "visuals",
-      title: "Add Motion to Scene 2",
-      description:
-        "The problem scene could benefit from more dynamic visuals to capture attention.",
-      autoApplicable: false,
-    },
-    {
-      id: "sug-3",
-      priority: "low",
-      category: "content",
-      title: "Shorten Hook Text",
-      description:
-        "The hook text is slightly long. Consider trimming for better readability.",
-      autoApplicable: true,
-    },
-    {
-      id: "sug-4",
-      priority: "medium",
-      category: "audio",
-      title: "Add Background Music",
-      description:
-        "Consider adding subtle background music to enhance emotional impact.",
-      autoApplicable: false,
-    },
-  ];
-}
+// Suggestions are now fetched from the API via `useAnalyzeUrl().runSuggestions`.

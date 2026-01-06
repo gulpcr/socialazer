@@ -45,50 +45,30 @@ export interface RenderJob {
   outputUrl?: string;
 }
 
-// export interface URLAnalysis {
-//   id: string
-//   url: string
-//   title: string
-//   description: string
-//   pageType: "product" | "service" | "landing" | "article"
-//   headlines: { text: string; included: boolean }[]
-//   valueProposition: string
-//   targetAudience: string
-//   images: { url: string; relevance: "high" | "medium" | "low"; selected: boolean }[]
-//   brandColors: string[]
-//   brandName: string
-// }
+export const ANIMATIONS = [
+  "fade-in",
+  "zoom-in",
+  "zoom-out",
+  "slide-up",
+  "pan",
+  "none",
+] as const;
+export type AnimationType = (typeof ANIMATIONS)[number];
 
-export interface Scene {
-  id: string;
-  name: string;
-  duration: number;
-  primaryText: string;
-  secondaryText?: string;
-  textStyle: "headline" | "body" | "caption" | "cta";
-  voiceOver: string;
-  voiceOverPacing: "slow" | "normal" | "fast";
-  imageUrl: string;
-  transition: "cut" | "fade" | "slide" | "zoom";
-  animation: "none" | "ken-burns" | "parallax" | "fade-in";
-  notes?: string;
-}
+export const TEXTSTYLES = [
+  "bold_uppercase",
+  "bold",
+  "uppercase",
+  "body",
+  "italic",
+] as const;
+export type TextStyle = (typeof TEXTSTYLES)[number];
 
-// export interface VideoScript {
-//   id: string;
-//   analysisId: string;
-//   scenes: Scene[];
-//   totalDuration: number;
-// }
+export const TRANSITIONS = ["fade", "cut", "dissolve", "slide"] as const;
+export type TransitionType = (typeof TRANSITIONS)[number];
 
-export interface Suggestion {
-  id: string;
-  priority: "high" | "medium" | "low";
-  category: "content" | "visuals" | "audio" | "cta";
-  title: string;
-  description: string;
-  autoApplicable: boolean;
-}
+export const PACINGS = ["slow", "normal", "fast"] as const;
+export type VoiceOverPacing = (typeof PACINGS)[number];
 
 export interface ScoreMetrics {
   engagement: number;

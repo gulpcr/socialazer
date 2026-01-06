@@ -34,14 +34,29 @@ export interface VideoConfig {
   };
 }
 
+import type {
+  AnimationType,
+  TransitionType,
+  VoiceOverPacing,
+  TextStyle,
+} from "@/lib/types";
+
 export interface ScriptScene {
   id: string;
   order: number;
   duration: number;
   text?: string;
+  primaryText: string;
+  secondaryText?: string;
   voiceOver?: string;
-  visuals?: { type: string; url?: string; animation?: string };
-  transition?: string;
+  voiceOverPacing?: VoiceOverPacing;
+  textStyle: TextStyle;
+  visuals?: {
+    type: string;
+    url?: string;
+    animation: AnimationType;
+  };
+  transition?: TransitionType;
 }
 
 export interface VideoScript {

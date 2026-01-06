@@ -24,7 +24,7 @@ export function ContentReviewStep({
   onBack,
 }: ContentReviewStepProps) {
   const [data, setData] = useState<AnalysisResponse>(analysis);
-  console.log("Review Step Data:", data);
+  // console.log("Review Step Data:", data);
   const updateHeadline = (index: number, included: boolean) => {
     const currentHeadlines = data.extractedContent?.headlines ?? [];
     const newHeadlines = [...currentHeadlines];
