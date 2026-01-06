@@ -205,6 +205,15 @@ Available transitions: fade, cut, dissolve, slide`;
     }
   }
 
+  /**
+   * ENHANCED UPDATE SCRIPT FUNCTION
+   * Supports multiple update operations:
+   * 1. Update entire scenes array
+   * 2. Update specific scenes by ID
+   * 3. Add new scenes at specific positions
+   * 4. Remove scenes
+   * 5. Reorder scenes
+   */
   async updateScript(updates) {
     try {
       const currentScript = await this.getCurrentScript();
@@ -213,23 +222,114 @@ Available transitions: fade, cut, dissolve, slide`;
         throw new Error('No script found to update');
       }
 
-      // Merge updates
-      const updatedScript = {
-        ...currentScript,
-        ...updates,
-        updatedAt: new Date().toISOString()
-      };
+      let updatedScenes = [...currentScript.scenes];
 
-      // If scenes are being updated, recalculate total duration
-      if (updates.scenes) {
-        updatedScript.totalDuration = updates.scenes.reduce(
-          (sum, scene) => sum + (scene.duration || 0), 
-          0
+      // OPERATION 1: Replace entire scenes array
+      if (updates.scenes && Array.isArray(updates.scenes)) {
+        console.log('🔄 Replacing entire scenes array...');
+        updatedScenes = updates.scenes.map((scene, idx) => ({
+          ...scene,
+          id: scene.id || `scene_${idx + 1}`,
+          order: scene.order || idx + 1
+        }));
+      }
+
+      // OPERATION 2: Update specific scenes by ID
+      if (updates.updateScenes && Array.isArray(updates.updateScenes)) {
+        console.log('✏️ Updating specific scenes...');
+        updates.updateScenes.forEach(sceneUpdate => {
+          const sceneIndex = updatedScenes.findIndex(s => s.id === sceneUpdate.id);
+          
+          if (sceneIndex !== -1) {
+            // Merge updates into existing scene
+            updatedScenes[sceneIndex] = {
+              ...updatedScenes[sceneIndex],
+              ...sceneUpdate,
+              // Preserve ID
+              id: updatedScenes[sceneIndex].id,
+              // Update visuals properly if provided
+              visuals: sceneUpdate.visuals ? {
+                ...updatedScenes[sceneIndex].visuals,
+                ...sceneUpdate.visuals
+              } : updatedScenes[sceneIndex].visuals
+            };
+          }
+        });
+      }
+
+      // OPERATION 3: Add new scenes
+      if (updates.addScenes && Array.isArray(updates.addScenes)) {
+        console.log('➕ Adding new scenes...');
+        updates.addScenes.forEach(newScene => {
+          const position = newScene.position || updatedScenes.length;
+          const sceneToAdd = {
+            id: newScene.id || `scene_${uuidv4().split('-')[0]}`,
+            order: position + 1,
+            duration: newScene.duration || 5,
+            text: newScene.text || '',
+            voiceOver: newScene.voiceOver || '',
+            visuals: newScene.visuals || { type: 'image', url: '', animation: 'fade-in' },
+            transition: newScene.transition || 'dissolve'
+          };
+          
+          updatedScenes.splice(position, 0, sceneToAdd);
+        });
+      }
+
+      // OPERATION 4: Remove scenes
+      if (updates.removeScenes && Array.isArray(updates.removeScenes)) {
+        console.log('🗑️ Removing scenes...');
+        updatedScenes = updatedScenes.filter(scene => 
+          !updates.removeScenes.includes(scene.id)
         );
       }
 
+      // OPERATION 5: Reorder scenes
+      if (updates.reorderScenes && Array.isArray(updates.reorderScenes)) {
+        console.log('🔀 Reordering scenes...');
+        const reorderedScenes = [];
+        
+        updates.reorderScenes.forEach(sceneId => {
+          const scene = updatedScenes.find(s => s.id === sceneId);
+          if (scene) {
+            reorderedScenes.push(scene);
+          }
+        });
+        
+        // Add any scenes that weren't in the reorder list
+        updatedScenes.forEach(scene => {
+          if (!updates.reorderScenes.includes(scene.id)) {
+            reorderedScenes.push(scene);
+          }
+        });
+        
+        updatedScenes = reorderedScenes;
+      }
+
+      // Normalize scene order numbers
+      updatedScenes = updatedScenes.map((scene, idx) => ({
+        ...scene,
+        order: idx + 1
+      }));
+
+      // Recalculate total duration
+      const totalDuration = updatedScenes.reduce(
+        (sum, scene) => sum + (scene.duration || 0), 
+        0
+      );
+
+      // Create updated script
+      const updatedScript = {
+        ...currentScript,
+        scenes: updatedScenes,
+        totalDuration: totalDuration,
+        updatedAt: new Date().toISOString()
+      };
+
       // Save updated script
       await this.saveScriptToCsv(updatedScript);
+      console.log('💾 Script updated successfully');
+
       return updatedScript;
     } catch (error) {
       throw new Error(`Failed to update script: ${error.message}`);
@@ -253,12 +353,9 @@ Available transitions: fade, cut, dissolve, slide`;
       // Create final script object
       const scriptResult = {
         id: `script_${uuidv4().split('-')[0]}`,
-        // analysisId: analysisId,
-        // config: config,
-        // brandName: scrapedData.branding?.brandName || scrapedData.brandName,
         scenes: scenes,
-        totalDuration: totalDuration
-        // createdAt: new Date().toISOString()
+        totalDuration: totalDuration,
+        createdAt: new Date().toISOString()
       };
 
       // Save script to CSV
