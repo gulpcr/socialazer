@@ -108,6 +108,9 @@ CRITICAL INSTRUCTIONS:
 4. End with a clear call-to-action
 5. Keep text concise for ${platform}
 6. Match ${tone} tone and ${voiceStyle} voice throughout
+7. Use primary_text for main headlines (max 5 words)
+8. Use secondary_text for supporting details or subtitles (max 8 words)
+9. Select appropriate text_style based on emphasis needed
 
 OUTPUT FORMAT (JSON only, no markdown):
 {
@@ -115,7 +118,9 @@ OUTPUT FORMAT (JSON only, no markdown):
     {
       "order": 1,
       "duration": ${sceneDuration},
-      "text": "On-screen text/caption",
+      "primary_text": "Main headline or key message",
+      "secondary_text": "Supporting text or subtitle",
+      "text_style": "bold|normal|italic|uppercase",
       "voiceOver": "Spoken narration",
       "imageIndex": 0,
       "animation": "fade-in",
@@ -124,6 +129,7 @@ OUTPUT FORMAT (JSON only, no markdown):
   ]
 }
 
+Available text_style: bold, normal, italic, uppercase, bold_uppercase
 Available animations: fade-in, zoom-in, slide-up, pan, zoom-out
 Available transitions: fade, cut, dissolve, slide`;
 
@@ -152,7 +158,9 @@ Available transitions: fade, cut, dissolve, slide`;
           id: `scene_${idx + 1}`,
           order: scene.order || idx + 1,
           duration: scene.duration || sceneDuration,
-          text: scene.text || '',
+          primary_text: scene.primary_text || '',
+          secondary_text: scene.secondary_text || '',
+          text_style: scene.text_style || 'normal',
           voiceOver: scene.voiceOver || '',
           visuals: {
             type: 'image',
@@ -266,7 +274,9 @@ Available transitions: fade, cut, dissolve, slide`;
             id: newScene.id || `scene_${uuidv4().split('-')[0]}`,
             order: position + 1,
             duration: newScene.duration || 5,
-            text: newScene.text || '',
+            primary_text: newScene.primary_text || '',
+            secondary_text: newScene.secondary_text || '',
+            text_style: newScene.text_style || 'normal',
             voiceOver: newScene.voiceOver || '',
             visuals: newScene.visuals || { type: 'image', url: '', animation: 'fade-in' },
             transition: newScene.transition || 'dissolve'
