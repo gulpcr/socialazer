@@ -13,7 +13,6 @@ class ReelGenService {
     this.qrCodePath = path.join(__dirname, '../../src/assets/url/url.txt'); 
     this.creatomateApiUrl = 'https://api.creatomate.com/v2/renders';
     
-    // FIX: Define the Voice ID here so it can be used later
     this.elevenlabsVoiceId = process.env.ELEVENLABS_VOICE_ID || 'NDTYOmYEjbDIVCKB35i3';
     
     this.creatomateApiKey = process.env.CREATOMATE_API_KEY;
@@ -66,136 +65,103 @@ class ReelGenService {
         : generatedScript;
 
       const creatomateElements = [];
-      
-      const scenes = {};
-      
-      if (scriptObj.elements && Array.isArray(scriptObj.elements)) {
-        scriptObj.elements.forEach(element => {
-          const startTime = element.start !== undefined ? element.start : (element.time || 0);
-          if (!scenes[startTime]) scenes[startTime] = [];
-          scenes[startTime].push(element);
-        });
-      }
-
-      const sortedStartTimes = Object.keys(scenes).map(Number).sort((a, b) => a - b);
       let currentCursor = 0;
-      
-      let videoCount = 0;
-      let imageCount = 0;
-      let textCount = 0;
 
-      sortedStartTimes.forEach((originalStartTime, sceneIndex) => {
-        const sceneElements = scenes[originalStartTime];
+      // NEW FORMAT: Handle 'scenes' array
+      if (scriptObj.scenes && Array.isArray(scriptObj.scenes)) {
+        console.log('📝 Processing NEW script format with scenes...');
         
-        const audioEl = sceneElements.find(e => e.type === 'audio');
-        const visualEl = sceneElements.find(e => e.type === 'image' || e.type === 'video');
-        const textEl = sceneElements.find(e => e.type === 'text');
-        
-        let sceneDuration = 3; 
-        
-        if (audioEl) {
-           sceneDuration = this.estimateTextDuration(audioEl.source || audioEl.url);
-        } else if (textEl && !visualEl) {
-           sceneDuration = textEl.duration || 3;
-        } else if (visualEl && visualEl.duration) {
-           sceneDuration = visualEl.duration;
-        }
-        
-        // --- 1. HANDLE BACKGROUND ---
-        if (visualEl) {
-          if (visualEl.type === 'video') {
-            videoCount++;
-            const trackNum = 1 + (videoCount % 2);
-            creatomateElements.push({
-              type: 'video',
-              track: trackNum,
-              time: currentCursor,
-              duration: sceneDuration,
-              source: visualEl.url,
-              animations: visualEl.animation ? [{ time: 0, duration: 1, type: 'fade', easing: 'quadratic-out' }] : []
-            });
-          } else {
-            imageCount++;
-            const trackNum = 10 + (imageCount % 2);
-            creatomateElements.push({
-              type: 'image',
-              track: trackNum,
-              time: currentCursor,
-              duration: sceneDuration,
-              source: visualEl.url,
-              width: '100%',
-              height: '100%',
-              animations: visualEl.animation ? [{ time: 0, duration: 1, type: 'fade', easing: 'quadratic-out' }] : []
-            });
-          }
-        } else {
-          const bgColor = textEl?.style?.background || '#FFFFFF';
+        scriptObj.scenes.forEach((scene, sceneIndex) => {
+          const sceneDuration = scene.duration || 5;
           
-          creatomateElements.push({
-            type: 'shape',
-            shape: 'rectangle',
-            track: 1, 
-            time: currentCursor,
-            duration: sceneDuration,
-            fill_color: bgColor,
-            width: '100%',
-            height: '100%',
-            animations: [{ time: 0, duration: 1, type: 'fade', easing: 'quadratic-out' }]
-          });
-        }
-
-        // --- 2. HANDLE AUDIO ---
-        if (audioEl) {
-          const audioElement = {
-            name: audioEl.name || `Voiceover-${sceneIndex}`,
-            type: 'audio',
-            track: 5, 
-            time: currentCursor,
-            source: audioEl.source || audioEl.url,
-            // FIX: Now this.elevenlabsVoiceId is defined in constructor
-            provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.5 similarity_boost=0.75`
-          };
-          creatomateElements.push(audioElement);
-        }
-
-        // --- 3. HANDLE TEXT ---
-        if (textEl) {
-          textCount++;
-          const trackNum = 100 + (textCount % 2);
-
-          const useTextBackground = !!visualEl; 
-
-          const textElement = {
-            type: 'text',
-            track: trackNum,
-            time: currentCursor,
-            duration: sceneDuration,
-            text: textEl.text,
-            fill_color: textEl.style?.color || '#ffffff',
-            font_family: textEl.style?.font || 'Montserrat',
-            font_weight: '700',
-            font_size: '8 vmin', 
-            width: useTextBackground ? '86.66%' : '100%', 
-            height: useTextBackground ? '37.71%' : 'auto',
-            x_alignment: '50%',
-            y_alignment: '50%',
-            stroke_color: textEl.style?.stroke || '#333333',
-            stroke_width: '0'
-          };
-
-          if (useTextBackground) {
-            textElement.background_color = textEl.style?.background || 'rgba(0,0,0,0.7)';
-            textElement.background_x_padding = '26%';
-            textElement.background_y_padding = '7%';
-            textElement.background_border_radius = '28%';
-            textElement.stroke_width = '1.05 vmin';
+          // --- 1. HANDLE BACKGROUND (Visual) ---
+          if (scene.visuals) {
+            if (scene.visuals.type === 'video') {
+              creatomateElements.push({
+                type: 'video',
+                track: 1,
+                time: currentCursor,
+                duration: sceneDuration,
+                source: scene.visuals.url,
+                animations: scene.visuals.animation ? [{ 
+                  time: 0, 
+                  duration: 1, 
+                  type: 'fade', 
+                  easing: 'quadratic-out' 
+                }] : []
+              });
+            } else if (scene.visuals.type === 'image') {
+              creatomateElements.push({
+                type: 'image',
+                track: 10,
+                time: currentCursor,
+                duration: sceneDuration,
+                source: scene.visuals.url,
+                width: '100%',
+                height: '100%',
+                animations: scene.visuals.animation ? [{ 
+                  time: 0, 
+                  duration: 1, 
+                  type: 'fade', 
+                  easing: 'quadratic-out' 
+                }] : []
+              });
+            }
+          } else {
+            // Fallback: white background
+            creatomateElements.push({
+              type: 'shape',
+              shape: 'rectangle',
+              track: 1,
+              time: currentCursor,
+              duration: sceneDuration,
+              fill_color: '#FFFFFF',
+              width: '100%',
+              height: '100%'
+            });
           }
 
-          if (audioEl) {
-            textElement.transcript_source = `Voiceover-${sceneIndex}`;
-            textElement.transcript_effect = 'highlight';
-            
-            if (textEl.animation) {
+          // --- 2. HANDLE AUDIO (VoiceOver) ---
+          if (scene.voiceOver) {
+            const audioElement = {
+              name: `Voiceover-${sceneIndex}`,
+              type: 'audio',
+              track: 5,
+              time: currentCursor,
+              source: scene.voiceOver,
+              provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.5 similarity_boost=0.75`
+            };
+            creatomateElements.push(audioElement);
+          }
+
+          // --- 3. HANDLE TEXT (On-screen text) ---
+          if (scene.text) {
+            const textElement = {
+              type: 'text',
+              track: 100,
+              time: currentCursor,
+              duration: sceneDuration,
+              text: scene.text,
+              fill_color: '#ffffff',
+              font_family: 'Montserrat',
+              font_weight: '700',
+              font_size: '8 vmin',
+              width: '86.66%',
+              height: '37.71%',
+              x_alignment: '50%',
+              y_alignment: '50%',
+              stroke_color: '#333333',
+              stroke_width: '1.05 vmin',
+              background_color: 'rgba(0,0,0,0.7)',
+              background_x_padding: '26%',
+              background_y_padding: '7%',
+              background_border_radius: '28%'
+            };
+
+            // If voiceover exists, sync text with audio
+            if (scene.voiceOver) {
+              textElement.transcript_source = `Voiceover-${sceneIndex}`;
+              textElement.transcript_effect = 'highlight';
               textElement.animations = [{
                 time: 0,
                 duration: 1,
@@ -205,22 +171,179 @@ class ReelGenService {
                 split: 'line',
                 background_effect: 'scaling-clip'
               }];
+            } else {
+              textElement.animations = [{
+                time: 0,
+                duration: 1.5,
+                easing: 'quadratic-out',
+                type: 'scale',
+                start_scale: '50%'
+              }];
             }
-          } else {
-            textElement.animations = [{
-              time: 0,
-              duration: 1.5,
-              easing: 'quadratic-out',
-              type: 'scale',
-              start_scale: '50%'
-            }];
+
+            creatomateElements.push(textElement);
           }
 
-          creatomateElements.push(textElement);
-        }
+          currentCursor += sceneDuration;
+        });
 
-        currentCursor += sceneDuration;
-      });
+      } 
+      // OLD FORMAT: Handle 'elements' array (backward compatibility)
+      else if (scriptObj.elements && Array.isArray(scriptObj.elements)) {
+        console.log('📝 Processing OLD script format with elements...');
+        
+        const scenes = {};
+        
+        scriptObj.elements.forEach(element => {
+          const startTime = element.start !== undefined ? element.start : (element.time || 0);
+          if (!scenes[startTime]) scenes[startTime] = [];
+          scenes[startTime].push(element);
+        });
+
+        const sortedStartTimes = Object.keys(scenes).map(Number).sort((a, b) => a - b);
+        
+        let videoCount = 0;
+        let imageCount = 0;
+        let textCount = 0;
+
+        sortedStartTimes.forEach((originalStartTime, sceneIndex) => {
+          const sceneElements = scenes[originalStartTime];
+          
+          const audioEl = sceneElements.find(e => e.type === 'audio');
+          const visualEl = sceneElements.find(e => e.type === 'image' || e.type === 'video');
+          const textEl = sceneElements.find(e => e.type === 'text');
+          
+          let sceneDuration = 3;
+          
+          if (audioEl) {
+            sceneDuration = this.estimateTextDuration(audioEl.source || audioEl.url);
+          } else if (textEl && !visualEl) {
+            sceneDuration = textEl.duration || 3;
+          } else if (visualEl && visualEl.duration) {
+            sceneDuration = visualEl.duration;
+          }
+          
+          // Handle background
+          if (visualEl) {
+            if (visualEl.type === 'video') {
+              videoCount++;
+              const trackNum = 1 + (videoCount % 2);
+              creatomateElements.push({
+                type: 'video',
+                track: trackNum,
+                time: currentCursor,
+                duration: sceneDuration,
+                source: visualEl.url,
+                animations: visualEl.animation ? [{ time: 0, duration: 1, type: 'fade', easing: 'quadratic-out' }] : []
+              });
+            } else {
+              imageCount++;
+              const trackNum = 10 + (imageCount % 2);
+              creatomateElements.push({
+                type: 'image',
+                track: trackNum,
+                time: currentCursor,
+                duration: sceneDuration,
+                source: visualEl.url,
+                width: '100%',
+                height: '100%',
+                animations: visualEl.animation ? [{ time: 0, duration: 1, type: 'fade', easing: 'quadratic-out' }] : []
+              });
+            }
+          } else {
+            const bgColor = textEl?.style?.background || '#FFFFFF';
+            
+            creatomateElements.push({
+              type: 'shape',
+              shape: 'rectangle',
+              track: 1,
+              time: currentCursor,
+              duration: sceneDuration,
+              fill_color: bgColor,
+              width: '100%',
+              height: '100%',
+              animations: [{ time: 0, duration: 1, type: 'fade', easing: 'quadratic-out' }]
+            });
+          }
+
+          // Handle audio
+          if (audioEl) {
+            const audioElement = {
+              name: audioEl.name || `Voiceover-${sceneIndex}`,
+              type: 'audio',
+              track: 5,
+              time: currentCursor,
+              source: audioEl.source || audioEl.url,
+              provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId} stability=0.5 similarity_boost=0.75`
+            };
+            creatomateElements.push(audioElement);
+          }
+
+          // Handle text
+          if (textEl) {
+            textCount++;
+            const trackNum = 100 + (textCount % 2);
+            const useTextBackground = !!visualEl;
+
+            const textElement = {
+              type: 'text',
+              track: trackNum,
+              time: currentCursor,
+              duration: sceneDuration,
+              text: textEl.text,
+              fill_color: textEl.style?.color || '#ffffff',
+              font_family: textEl.style?.font || 'Montserrat',
+              font_weight: '700',
+              font_size: '8 vmin',
+              width: useTextBackground ? '86.66%' : '100%',
+              height: useTextBackground ? '37.71%' : 'auto',
+              x_alignment: '50%',
+              y_alignment: '50%',
+              stroke_color: textEl.style?.stroke || '#333333',
+              stroke_width: '0'
+            };
+
+            if (useTextBackground) {
+              textElement.background_color = textEl.style?.background || 'rgba(0,0,0,0.7)';
+              textElement.background_x_padding = '26%';
+              textElement.background_y_padding = '7%';
+              textElement.background_border_radius = '28%';
+              textElement.stroke_width = '1.05 vmin';
+            }
+
+            if (audioEl) {
+              textElement.transcript_source = `Voiceover-${sceneIndex}`;
+              textElement.transcript_effect = 'highlight';
+              
+              if (textEl.animation) {
+                textElement.animations = [{
+                  time: 0,
+                  duration: 1,
+                  easing: 'quadratic-out',
+                  type: 'text-slide',
+                  scope: 'split-clip',
+                  split: 'line',
+                  background_effect: 'scaling-clip'
+                }];
+              }
+            } else {
+              textElement.animations = [{
+                time: 0,
+                duration: 1.5,
+                easing: 'quadratic-out',
+                type: 'scale',
+                start_scale: '50%'
+              }];
+            }
+
+            creatomateElements.push(textElement);
+          }
+
+          currentCursor += sceneDuration;
+        });
+      } else {
+        throw new Error('Invalid script format: No scenes or elements array found');
+      }
 
       // --- QR CODE OVERLAY ---
       if (qrCodeUrl) {
@@ -236,7 +359,7 @@ class ReelGenService {
           fit: 'contain',
           x_alignment: '100%',
           y_alignment: '0%',
-          x: '92%', 
+          x: '92%',
           y: '8%',
           shadow_color: 'rgba(0,0,0,0.5)',
           shadow_blur: '1vmin',
@@ -246,8 +369,8 @@ class ReelGenService {
 
       return {
         output_format: scriptObj.output_format || 'mp4',
-        width: scriptObj.width || 1280,
-        height: scriptObj.height || 720,
+        width: scriptObj.config?.dimensions?.width || scriptObj.width || 1280,
+        height: scriptObj.config?.dimensions?.height || scriptObj.height || 720,
         duration: currentCursor,
         render_scale: 1,
         elements: creatomateElements

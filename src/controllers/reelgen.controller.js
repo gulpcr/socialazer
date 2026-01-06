@@ -17,10 +17,28 @@ class ReelGenController {
 
       // 1. Validation: Ensure Script Exists
       const scriptData = await scriptService.getCurrentScript();
-      if (!scriptData || !scriptData.script) {
+      
+      // DEBUG: Log what we got
+      console.log('📊 Script data retrieved:', scriptData ? 'Found' : 'NULL');
+      if (scriptData) {
+        console.log('📊 Script has scenes?', !!scriptData.scenes);
+        console.log('📊 Script has elements?', !!scriptData.elements);
+        console.log('📊 Script keys:', Object.keys(scriptData));
+      }
+      
+      // FIX: getCurrentScript now returns script directly, not wrapped in { script: ... }
+      if (!scriptData) {
         return res.status(400).json({
           success: false,
-          message: 'No script found. Please generate a script first.'
+          message: 'No script found. Please generate a script first using POST /api/scripts/generate'
+        });
+      }
+
+      // Check for either new format (scenes) or old format (elements)
+      if (!scriptData.scenes && !scriptData.elements) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid script format. Script must have either "scenes" or "elements" array.'
         });
       }
 
@@ -29,12 +47,14 @@ class ReelGenController {
 
       // 3. Step 1: Download Assets (Images)
       console.log('   Step 1: Downloading Assets...');
-      await assetService.downloadScriptAssets(scriptData.script);
+      // FIX: Pass scriptData directly instead of scriptData.script
+      await assetService.downloadScriptAssets(scriptData);
 
       // 4. Step 2: Generate Voiceover (if enabled)
       console.log('   Step 2: Checking Voiceover...');
       if (config.voiceover) {
-        await voiceService.generateVoiceover(scriptData.script);
+        // FIX: Pass scriptData directly
+        await voiceService.generateVoiceover(scriptData);
       } else {
         console.log('   Voiceover disabled in config.');
       }

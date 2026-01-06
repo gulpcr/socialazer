@@ -8,6 +8,8 @@ const reelgenRoutes = require('./routes/reelgen.routes');
 const soraRoutes = require('./routes/sora.routes.js');
 const configRoutes = require('./routes/config.routes.js');
 const infoRoutes = require('./routes/info.routes.js');
+const suggestionsRoutes = require('./routes/suggestions.routes');
+
 
 
 const app = express();
@@ -16,7 +18,7 @@ const PORT = process.env.PORT;
 /**
  * GLOBAL CORS CONFIG
  * Allow requests from ANY origin (demo only)
- */
+*/
 app.use(cors());
 
 // Middleware to parse JSON
@@ -34,6 +36,8 @@ app.use('/api/v1', reelscriptRoutes);
 app.use('/api/v1', reelgenRoutes);
 // Sora routes
 app.use('/api/v1', soraRoutes);
+// Register routes
+app.use('/api/v1', suggestionsRoutes);
 
 // Simple root endpoint
 app.get("/", (req, res) => {

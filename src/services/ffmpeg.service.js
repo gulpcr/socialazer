@@ -40,6 +40,7 @@ class FfmpegService {
 
   /**
    * Reads the Brand Name from scraped.csv to display on the end card
+   * Updated to handle both old and new scraped data formats
    */
   async getBrandName() {
     try {
@@ -53,13 +54,31 @@ class FfmpegService {
             if (results.data && results.data.length > 0) {
               try {
                 const parsed = JSON.parse(results.data[0].data);
-                resolve(parsed.brandName || 'VISIT US');
-              } catch (e) { resolve('VISIT US'); }
-            } else { resolve('VISIT US'); }
+                
+                // NEW FORMAT: branding.brandName
+                if (parsed.branding && parsed.branding.brandName) {
+                  resolve(parsed.branding.brandName);
+                } 
+                // OLD FORMAT: brandName
+                else if (parsed.brandName) {
+                  resolve(parsed.brandName);
+                } 
+                // FALLBACK
+                else {
+                  resolve('VISIT US');
+                }
+              } catch (e) { 
+                resolve('VISIT US'); 
+              }
+            } else { 
+              resolve('VISIT US'); 
+            }
           }
         });
       });
-    } catch (e) { return 'VISIT US'; }
+    } catch (e) { 
+      return 'VISIT US'; 
+    }
   }
 
   /**

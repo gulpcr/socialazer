@@ -11,6 +11,7 @@ class VoiceService {
 
   /**
    * Generates a single MP3 voiceover file from the script.
+   * Supports both NEW format (scenes) and OLD format (elements).
    * Cleans the directory first (POC mode).
    * @param {Object} scriptData - The JSON object from script.service
    */
@@ -30,16 +31,27 @@ class VoiceService {
       }
       fs.mkdirSync(this.audioDir, { recursive: true });
 
-      // 3. Extract text from script
-      // We look for elements with type 'audio' (as formatted in script.service.js)
-      // or 'voiceover' (raw format)
-      if (!scriptData || !scriptData.elements) {
-        throw new Error('Invalid script data: No elements found.');
-      }
+      // 3. Extract voiceover text from script (handle both formats)
+      let voiceParts = [];
 
-      const voiceParts = scriptData.elements
-        .filter(el => el.type === 'audio' || el.type === 'voiceover')
-        .map(el => el.source || el.text); // 'source' is used in processed script, 'text' in raw
+      // NEW FORMAT: scenes array
+      if (scriptData.scenes && Array.isArray(scriptData.scenes)) {
+        console.log('   📝 Processing NEW script format (scenes)...');
+        voiceParts = scriptData.scenes
+          .filter(scene => scene.voiceOver && scene.voiceOver.trim().length > 0)
+          .map(scene => scene.voiceOver.trim());
+      }
+      // OLD FORMAT: elements array
+      else if (scriptData.elements && Array.isArray(scriptData.elements)) {
+        console.log('   📝 Processing OLD script format (elements)...');
+        voiceParts = scriptData.elements
+          .filter(el => el.type === 'audio' || el.type === 'voiceover')
+          .map(el => el.source || el.text)
+          .filter(text => text && text.trim().length > 0);
+      }
+      else {
+        throw new Error('Invalid script data: No scenes or elements found.');
+      }
 
       if (voiceParts.length === 0) {
         console.log('ℹ️ No voiceover elements found in script. Skipping.');
