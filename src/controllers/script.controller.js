@@ -1,28 +1,39 @@
+// src/controllers/script.controller.js
 const scriptService = require('../services/script.service');
 
 class ScriptController {
   // 1. Generate new script (POST)
   async generateScript(req, res) {
     try {
-      // Extract configuration from request body with defaults
-      const {
-        channel = 'instagram',    // instagram, youtube, facebook, linkedin
-        duration = 30,            // 15, 30, 60
-        adType = 'awareness',     // awareness, sales, traffic
-        dimensions = { width: 1080, height: 1920 }, // Default 9:16
-        voiceover = true          // boolean toggle
-      } = req.body;
+      // Extract analysisId and config from request body
+      const { analysisId, config } = req.body;
 
-      const config = { channel, duration, adType, dimensions, voiceover };
+      // Validate required fields
+      if (!analysisId) {
+        return res.status(400).json({
+          success: false,
+          message: 'analysisId is required'
+        });
+      }
 
-      console.log('📝 Generating script with config:', config);
+      // Set defaults for config
+      const scriptConfig = {
+        platform: config?.platform || 'instagram',
+        duration: config?.duration || 30,
+        aspectRatio: config?.aspectRatio || '9:16',
+        tone: config?.tone || 'energetic',
+        voiceStyle: config?.voiceStyle || 'conversational'
+      };
 
-      // Pass config to the service to influence the LLM generation
-      const result = await scriptService.processAndGenerateScript(config);
+      console.log('🎬 Generating script with config:', scriptConfig);
+      console.log('📊 Using analysis ID:', analysisId);
+
+      // Pass analysisId and config to the service
+      const result = await scriptService.processAndGenerateScript(analysisId, scriptConfig);
       
       return res.status(200).json({
         success: true,
-        message: 'Script generated and saved successfully',
+        message: 'Script generated successfully',
         data: result
       });
     } catch (error) {

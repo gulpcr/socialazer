@@ -3,7 +3,7 @@ const router = express.Router();
 const scriptController = require('../controllers/script.controller');
 
 // Generate a brand new script from scraped data
-router.post('/generate-reel-script', scriptController.generateScript);
+router.post('/generate-script', scriptController.generateScript);
 
 // Get the currently active script
 router.get('/latest', scriptController.getGeneratedScript);

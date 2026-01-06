@@ -4,7 +4,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const Papa = require('papaparse');
 const OpenAI = require('openai');
-const configService = require('./config.service');
+const { v4: uuidv4 } = require('uuid');
 
 class ScriptService {
   constructor() {
@@ -19,125 +19,163 @@ class ScriptService {
       const csvContent = await fs.readFile(this.scrapedCsvPath, 'utf-8');
       return new Promise((resolve, reject) => {
         Papa.parse(csvContent, {
-          header: true, skipEmptyLines: true,
+          header: true, 
+          skipEmptyLines: true,
           complete: (results) => {
-            if (results.data.length > 0) resolve(JSON.parse(results.data[0].data));
-            else reject(new Error('No data'));
-          }
+            if (results.data.length > 0) {
+              resolve(JSON.parse(results.data[0].data));
+            } else {
+              reject(new Error('No data found in scraped.csv'));
+            }
+          },
+          error: (error) => reject(error)
         });
       });
-    } catch (error) { throw error; }
+    } catch (error) { 
+      throw new Error(`Failed to read scraped data: ${error.message}`); 
+    }
+  }
+
+  validateAnalysisId(scrapedData, analysisId) {
+    if (scrapedData.id !== analysisId) {
+      throw new Error(`Analysis ID mismatch. Expected ${analysisId}, found ${scrapedData.id}`);
+    }
   }
 
   async generateScriptWithGPT(scrapedData, config) {
     try {
-      const brandName = scrapedData.brandName || 'Our Brand';
-      const keyMessages = scrapedData.keyMessages || [];
+      const { platform, duration, aspectRatio, tone, voiceStyle } = config;
       
-      // Prepare Asset Library with Categories
-      const assetLibrary = (scrapedData.adReadyImages || [])
-        .filter(img => img.url && img.url.length > 10)
-        .map((img, index) => ({
-          id: index,
-          category: img.category || 'general',
-          description: img.visualContent || "Brand visual",
-          url: img.url
-        }));
+      const brandName = scrapedData.branding?.brandName || scrapedData.brandName || 'Our Brand';
+      const description = scrapedData.extractedContent?.description || scrapedData.description || '';
+      const valueProposition = scrapedData.extractedContent?.valueProposition || '';
+      const targetAudience = scrapedData.extractedContent?.targetAudience || '';
+      const keyPoints = scrapedData.extractedContent?.keyPoints || scrapedData.keyMessages || [];
+      const headlines = scrapedData.extractedContent?.headlines || [];
+      
+      // Get available images
+      const availableImages = scrapedData.media?.images || scrapedData.adReadyImages || [];
+      const selectedImages = availableImages.filter(img => img.selected !== false && img.url);
 
-      if (assetLibrary.length === 0) throw new Error("No valid images found.");
+      if (selectedImages.length === 0) {
+        throw new Error("No valid images found in scraped data.");
+      }
 
-      const duration = parseInt(config.duration || 15);
-      const targetImageCount = Math.max(3, Math.floor(duration / 5));
-      const wordCount = Math.floor(duration * 3.5); 
+      // Calculate scene parameters
+      const targetDuration = parseInt(duration);
+      const sceneDuration = targetDuration <= 15 ? 3 : targetDuration <= 30 ? 5 : 6;
+      const numScenes = Math.ceil(targetDuration / sceneDuration);
 
-      const voiceoverInstruction = config.voiceover 
-        ? `Generate a voiceover of exactly ${wordCount} words. 
-           CRITICAL:
-           1. Use the KEY MESSAGES provided.
-           2. Talk about the products visible in the ASSET LIBRARY descriptions.
-           3. End with "Visit ${brandName} today."`
-        : `NO VOICEOVER.`;
+      // Prepare image descriptions for AI
+      const imageDescriptions = selectedImages.map((img, idx) => ({
+        index: idx,
+        description: img.alt || img.visualContent || 'Product image',
+        category: img.category || 'general',
+        url: img.url
+      }));
 
-      const systemPrompt = `You are a video director.
+      const systemPrompt = `You are an expert video scriptwriter specializing in ${platform} ads.
 
-KEY MESSAGES (Facts to use):
-${JSON.stringify(keyMessages)}
+Generate a ${targetDuration}-second video script with exactly ${numScenes} scenes.
 
-ASSET LIBRARY (Available Images):
-${JSON.stringify(assetLibrary.slice(0, 15).map(a => `ID ${a.id} [${a.category}]: ${a.description}`))}
+BRAND CONTEXT:
+- Brand: ${brandName}
+- Description: ${description}
+- Value Proposition: ${valueProposition}
+- Target Audience: ${targetAudience}
 
-INSTRUCTIONS:
-1. Create a ${duration}s script with ${targetImageCount} scenes.
-2. **SEMANTIC MATCHING:** If the voiceover talks about a specific product (e.g. "iPad"), you MUST select an image ID where the description matches that product. Do not show a movie poster when talking about a laptop.
-3. ${voiceoverInstruction}
+KEY POINTS TO HIGHLIGHT:
+${keyPoints.map((point, i) => `${i + 1}. ${point}`).join('\n')}
 
-OUTPUT JSON:
+AVAILABLE HEADLINES:
+${headlines.map(h => `- ${h.text || h}`).join('\n')}
+
+AVAILABLE IMAGES:
+${imageDescriptions.map(img => `[${img.index}] ${img.category}: ${img.description}`).join('\n')}
+
+REQUIREMENTS:
+- Platform: ${platform}
+- Duration: ${targetDuration} seconds total
+- Aspect Ratio: ${aspectRatio}
+- Tone: ${tone}
+- Voice Style: ${voiceStyle}
+- Each scene should be approximately ${sceneDuration} seconds
+
+CRITICAL INSTRUCTIONS:
+1. Match images to narration semantically (e.g., if talking about a laptop, use laptop image)
+2. Start with an attention-grabbing hook
+3. Include key benefits and features
+4. End with a clear call-to-action
+5. Keep text concise for ${platform}
+6. Match ${tone} tone and ${voiceStyle} voice throughout
+
+OUTPUT FORMAT (JSON only, no markdown):
 {
-  "elements": [
-    { "type": "voiceover", "text": "Talking about iPad..." },
-    { "type": "image", "assetId": 0, "duration": 5 }
+  "scenes": [
+    {
+      "order": 1,
+      "duration": ${sceneDuration},
+      "text": "On-screen text/caption",
+      "voiceOver": "Spoken narration",
+      "imageIndex": 0,
+      "animation": "fade-in",
+      "transition": "fade"
+    }
   ]
-}`;
+}
+
+Available animations: fade-in, zoom-in, slide-up, pan, zoom-out
+Available transitions: fade, cut, dissolve, slide`;
 
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [{ role: 'system', content: systemPrompt }],
         response_format: { type: "json_object" },
-        temperature: 0.4, // Lower temp for strict matching
+        temperature: 0.6,
+        max_tokens: 2000
       });
 
       const jsonScript = JSON.parse(completion.choices[0].message.content);
 
-      if (jsonScript.elements) {
-        const processedElements = [];
-        let imageCounter = 0;
+      // Process and format scenes
+      const scenes = (jsonScript.scenes || []).map((scene, idx) => {
+        let imageIndex = scene.imageIndex;
+        
+        // Validate image index
+        if (typeof imageIndex !== 'number' || imageIndex < 0 || imageIndex >= selectedImages.length) {
+          imageIndex = idx % selectedImages.length;
+        }
 
-        jsonScript.elements.forEach((element, index) => {
-          if (element.type === 'voiceover') {
-            if (config.voiceover) {
-              processedElements.push({
-                name: `Voiceover-${index}`,
-                type: 'audio',
-                track: 1,
-                time: 0,
-                source: element.text,
-                provider: `elevenlabs model_id=eleven_multilingual_v2 voice_id=${this.elevenlabsVoiceId}`
-              });
-            }
-          } 
-          else if (element.type === 'image') {
-            let imgIndex = element.assetId;
-            
-            // Validation
-            if (typeof imgIndex !== 'number' || imgIndex >= assetLibrary.length) {
-                // If LLM failed to pick a valid ID, pick the next one in line
-                imgIndex = imageCounter % assetLibrary.length;
-            }
-            imageCounter++;
+        const selectedImage = selectedImages[imageIndex];
 
-            processedElements.push({
-              type: 'image',
-              url: assetLibrary[imgIndex].url,
-              start: 0,
-              duration: element.duration || 5
-            });
-          }
-        });
-        jsonScript.elements = processedElements;
-      }
+        return {
+          id: `scene_${idx + 1}`,
+          order: scene.order || idx + 1,
+          duration: scene.duration || sceneDuration,
+          text: scene.text || '',
+          voiceOver: scene.voiceOver || '',
+          visuals: {
+            type: 'image',
+            url: selectedImage.url,
+            animation: scene.animation || 'fade-in'
+          },
+          transition: scene.transition || (idx === jsonScript.scenes.length - 1 ? 'fade' : 'dissolve')
+        };
+      });
 
-      jsonScript.width = config.dimensions.width;
-      jsonScript.height = config.dimensions.height;
-
-      return jsonScript;
+      return scenes;
 
     } catch (error) {
-      throw new Error(`Failed to generate script: ${error.message}`);
+      throw new Error(`Failed to generate script with GPT: ${error.message}`);
     }
   }
 
   async saveScriptToCsv(scriptData) {
-    const csvData = [{ timestamp: new Date().toISOString(), script: JSON.stringify(scriptData), status: 'generated' }];
+    const csvData = [{ 
+      timestamp: new Date().toISOString(), 
+      script: JSON.stringify(scriptData), 
+      status: 'generated' 
+    }];
     const csv = Papa.unparse(csvData);
     await fs.writeFile(this.scriptCsvPath, csv, 'utf-8');
     return { success: true, path: this.scriptCsvPath };
@@ -145,27 +183,92 @@ OUTPUT JSON:
 
   async getCurrentScript() {
     try {
-        const csvContent = await fs.readFile(this.scriptCsvPath, 'utf-8');
-        return new Promise((resolve) => {
-            Papa.parse(csvContent, {
-                header: true,
-                complete: (results) => {
-                    if (results.data.length > 0) {
-                        try { resolve({ script: JSON.parse(results.data[results.data.length-1].script) }); }
-                        catch { resolve(null); }
-                    } else resolve(null);
-                }
-            });
+      const csvContent = await fs.readFile(this.scriptCsvPath, 'utf-8');
+      return new Promise((resolve) => {
+        Papa.parse(csvContent, {
+          header: true,
+          complete: (results) => {
+            if (results.data.length > 0) {
+              try { 
+                resolve(JSON.parse(results.data[results.data.length - 1].script)); 
+              } catch { 
+                resolve(null); 
+              }
+            } else {
+              resolve(null);
+            }
+          }
         });
-    } catch { return null; }
+      });
+    } catch { 
+      return null; 
+    }
   }
 
-  async processAndGenerateScript() {
-      const scraped = await this.readScrapedData();
-      const config = await configService.getConfig();
-      const script = await this.generateScriptWithGPT(scraped, config);
-      await this.saveScriptToCsv(script);
-      return { success: true, script };
+  async updateScript(updates) {
+    try {
+      const currentScript = await this.getCurrentScript();
+      
+      if (!currentScript) {
+        throw new Error('No script found to update');
+      }
+
+      // Merge updates
+      const updatedScript = {
+        ...currentScript,
+        ...updates,
+        updatedAt: new Date().toISOString()
+      };
+
+      // If scenes are being updated, recalculate total duration
+      if (updates.scenes) {
+        updatedScript.totalDuration = updates.scenes.reduce(
+          (sum, scene) => sum + (scene.duration || 0), 
+          0
+        );
+      }
+
+      // Save updated script
+      await this.saveScriptToCsv(updatedScript);
+      return updatedScript;
+    } catch (error) {
+      throw new Error(`Failed to update script: ${error.message}`);
+    }
+  }
+
+  async processAndGenerateScript(analysisId, config) {
+    try {
+      console.log('📖 Reading scraped data from CSV...');
+      const scrapedData = await this.readScrapedData();
+
+      console.log('✅ Validating analysis ID...');
+      this.validateAnalysisId(scrapedData, analysisId);
+
+      console.log('🎬 Generating scenes with GPT...');
+      const scenes = await this.generateScriptWithGPT(scrapedData, config);
+
+      // Calculate total duration
+      const totalDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
+
+      // Create final script object
+      const scriptResult = {
+        id: `script_${uuidv4().split('-')[0]}`,
+        // analysisId: analysisId,
+        // config: config,
+        // brandName: scrapedData.branding?.brandName || scrapedData.brandName,
+        scenes: scenes,
+        totalDuration: totalDuration
+        // createdAt: new Date().toISOString()
+      };
+
+      // Save script to CSV
+      await this.saveScriptToCsv(scriptResult);
+      console.log('💾 Script saved successfully');
+
+      return scriptResult;
+    } catch (error) {
+      throw new Error(`Failed to process and generate script: ${error.message}`);
+    }
   }
 }
 
