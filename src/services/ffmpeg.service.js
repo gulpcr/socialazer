@@ -7,23 +7,51 @@ const Papa = require('papaparse');
 let ffmpegPath = 'ffmpeg';
 let ffprobePath = 'ffprobe';
 
-// Setup FFmpeg Binaries
 try {
   ffmpegPath = require('ffmpeg-static');
   console.log('✅ Using ffmpeg-static');
 } catch (e) {
-  console.log('ℹ️ ffmpeg-static not found, using system ffmpeg');
+  console.log('ℹ️ Using system ffmpeg');
 }
 
 try {
   ffprobePath = require('ffprobe-static').path;
   console.log('✅ Using ffprobe-static');
 } catch (e) {
-  console.log('ℹ️ ffprobe-static not found, using system ffprobe');
+  console.log('ℹ️ Using system ffprobe');
 }
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 ffmpeg.setFfprobePath(ffprobePath);
+
+/**
+ * HIGH QUALITY VIDEO SETTINGS
+ */
+const VIDEO_CONFIG = {
+  // Output resolution (9:16 vertical video)
+  width: 1080,
+  height: 1920,
+  
+  // Quality settings
+  videoBitrate: '8000k',      // Increased from 5000k
+  maxBitrate: '12000k',       // VBR max
+  bufferSize: '16000k',       // Buffer for quality
+  crf: 18,                    // Constant Rate Factor (lower = better, 18-23 is good)
+  preset: 'slow',             // Encoding preset (slower = better quality)
+  
+  // Audio settings
+  audioBitrate: '256k',       // Increased from 192k
+  audioSampleRate: 48000,     // Increased from 44100
+  
+  // Frame rate
+  fps: 30,
+  
+  // Scaling algorithm for best quality
+  scaleAlgorithm: 'lanczos',  // Best quality scaling
+  
+  // Zoompan settings
+  zoomIncrement: 0.0003,      // Subtle zoom for Ken Burns effect
+};
 
 class FfmpegService {
   constructor() {
@@ -51,14 +79,7 @@ class FfmpegService {
             if (results.data && results.data.length > 0) {
               try {
                 const parsed = JSON.parse(results.data[0].data);
-                
-                if (parsed.branding && parsed.branding.brandName) {
-                  resolve(parsed.branding.brandName);
-                } else if (parsed.brandName) {
-                  resolve(parsed.brandName);
-                } else {
-                  resolve('VISIT US');
-                }
+                resolve(parsed.branding?.brandName || parsed.brandName || 'VISIT US');
               } catch (e) { 
                 resolve('VISIT US'); 
               }
@@ -73,13 +94,10 @@ class FfmpegService {
     }
   }
 
-  /**
-   * Get all scene audio files sorted by scene number
-   */
   getAllAudioFiles() {
     if (!fs.existsSync(this.audioDir)) return [];
     
-    const audioFiles = fs.readdirSync(this.audioDir)
+    return fs.readdirSync(this.audioDir)
       .filter(f => f.endsWith('.mp3') && f.match(/scene_\d+\.mp3/))
       .sort((a, b) => {
         const numA = parseInt(a.match(/scene_(\d+)/)?.[1] || 0);
@@ -87,62 +105,60 @@ class FfmpegService {
         return numA - numB;
       })
       .map(f => path.join(this.audioDir, f));
-    
-    console.log(`   🎤 Found ${audioFiles.length} scene audio files`);
-    return audioFiles;
   }
 
-  /**
-   * Get background music file
-   */
   getBackgroundMusicPath() {
-    if (!fs.existsSync(this.musicDir)) {
-      console.log('   ℹ️ No music directory found, skipping background music');
-      return null;
-    }
+    if (!fs.existsSync(this.musicDir)) return null;
     
     const musicFiles = fs.readdirSync(this.musicDir)
       .filter(f => f.match(/\.(mp3|wav|m4a|aac)$/i));
     
-    if (musicFiles.length === 0) {
-      console.log('   ℹ️ No music files found, skipping background music');
-      return null;
-    }
-    
-    const musicPath = path.join(this.musicDir, musicFiles[0]);
-    console.log(`   🎵 Found background music: ${musicFiles[0]}`);
-    return musicPath;
+    return musicFiles.length > 0 ? path.join(this.musicDir, musicFiles[0]) : null;
   }
 
-  /**
-   * Get exact audio duration using ffprobe
-   */
   getAudioDuration(filePath) {
-    return new Promise((resolve, reject) => {
+    return new Promise((resolve) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
-        if (err) return resolve(0);
-        resolve(metadata.format.duration || 0);
+        resolve(err ? 0 : metadata.format.duration || 0);
       });
     });
   }
 
-  /**
-   * NEW: Get durations of all audio files
-   */
   async getAllAudioDurations(audioFiles) {
     const durations = [];
-    
     for (let i = 0; i < audioFiles.length; i++) {
       const duration = await this.getAudioDuration(audioFiles[i]);
       durations.push(duration);
       console.log(`      Scene ${i + 1}: ${duration.toFixed(2)}s`);
     }
-    
     return durations;
   }
 
+  /**
+   * Get image dimensions using ffprobe
+   */
+  getImageDimensions(imagePath) {
+    return new Promise((resolve) => {
+      ffmpeg.ffprobe(imagePath, (err, metadata) => {
+        if (err || !metadata.streams?.[0]) {
+          resolve({ width: 0, height: 0 });
+        } else {
+          resolve({
+            width: metadata.streams[0].width || 0,
+            height: metadata.streams[0].height || 0
+          });
+        }
+      });
+    });
+  }
+
+  /**
+   * HIGH QUALITY VIDEO CREATION
+   */
   async createVideo(config) {
-    console.log('🎬 Starting Professional Video Composition...');
+    console.log('🎬 Starting HIGH QUALITY Video Composition...');
+    console.log(`   📐 Output: ${VIDEO_CONFIG.width}x${VIDEO_CONFIG.height}`);
+    console.log(`   🎞️ Quality: CRF ${VIDEO_CONFIG.crf}, ${VIDEO_CONFIG.videoBitrate}`);
 
     if (!fs.existsSync(this.outputDir)) fs.mkdirSync(this.outputDir, { recursive: true });
     
@@ -155,7 +171,14 @@ class FfmpegService {
 
     if (images.length === 0) throw new Error('No images found.');
 
-    // NEW APPROACH: Audio duration drives video length
+    // Log image dimensions
+    console.log('   📸 Checking source image quality...');
+    for (const img of images.slice(0, 3)) {
+      const dims = await this.getImageDimensions(img);
+      console.log(`      ${path.basename(img)}: ${dims.width}x${dims.height}`);
+    }
+
+    // Calculate durations
     let totalAudioDuration = 0;
     let audioDurations = [];
     
@@ -163,186 +186,187 @@ class FfmpegService {
       console.log(`   🎤 Analyzing voiceover durations...`);
       audioDurations = await this.getAllAudioDurations(audioFiles);
       totalAudioDuration = audioDurations.reduce((sum, dur) => sum + dur, 0);
-      console.log(`   📊 Total Voiceover: ${totalAudioDuration.toFixed(2)}s`);
     }
 
-    // Calculate durations
     const endCardDuration = 5;
     const slideshowDuration = totalAudioDuration > 0 ? totalAudioDuration : (config.duration || 25) - endCardDuration;
     const totalVideoDuration = slideshowDuration + endCardDuration;
-    
-    // Divide slideshow duration evenly among images
     const durationPerImage = slideshowDuration / images.length;
-    const framesPerImage = Math.ceil(durationPerImage * 30);
+    const framesPerImage = Math.ceil(durationPerImage * VIDEO_CONFIG.fps);
 
-    console.log(`   ⏱️ Slideshow: ${slideshowDuration.toFixed(2)}s (audio-driven)`);
-    console.log(`   ⏱️ End Card: ${endCardDuration}s`);
-    console.log(`   🎞️ Total Video: ${totalVideoDuration.toFixed(2)}s`);
-    console.log(`   📸 ${images.length} scenes x ${durationPerImage.toFixed(2)}s each`);
+    console.log(`   ⏱️ Slideshow: ${slideshowDuration.toFixed(2)}s | End Card: ${endCardDuration}s`);
+    console.log(`   🎞️ ${images.length} scenes x ${durationPerImage.toFixed(2)}s`);
 
     return new Promise((resolve, reject) => {
       let command = ffmpeg();
 
-      // Add image inputs
+      // Add inputs
       images.forEach(img => command.input(this.formatPath(img)));
-      
-      // Add QR input
       if (qrPath) command.input(this.formatPath(qrPath));
-      
-      // Add all audio inputs
-      audioFiles.forEach(audioFile => command.input(this.formatPath(audioFile)));
-      
-      // Add background music input
+      audioFiles.forEach(a => command.input(this.formatPath(a)));
       if (bgMusicPath) command.input(this.formatPath(bgMusicPath));
 
       const filterComplex = [];
       const videoStreams = [];
+      const { width, height, fps, scaleAlgorithm, zoomIncrement } = VIDEO_CONFIG;
 
-      // Process Images (Slideshow) - each image gets equal time
+      /**
+       * HIGH QUALITY IMAGE PROCESSING
+       * 
+       * Pipeline for each image:
+       * 1. Scale to 4K intermediate (preserves quality)
+       * 2. Create blurred background
+       * 3. Scale foreground with best algorithm
+       * 4. Composite
+       * 5. Apply subtle zoom (Ken Burns)
+       * 6. Final scale to output resolution
+       */
       images.forEach((_, i) => {
         filterComplex.push(
-          `[${i}:v]split=2 [bg${i}] [fg${i}];` +
-          `[bg${i}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10 [bg_blurred${i}];` +
-          `[fg${i}]scale=1080:1920:force_original_aspect_ratio=decrease [fg_scaled${i}];` +
-          `[bg_blurred${i}][fg_scaled${i}]overlay=(W-w)/2:(H-h)/2 [composed${i}];` +
-          `[composed${i}]scale=2160:3840 [highres${i}];` +
-          `[highres${i}]zoompan=z=zoom+0.0005:d=${framesPerImage}:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):s=1080x1920:fps=30,setsar=1 [v${i}]`
+          // Split into background and foreground
+          `[${i}:v]split=2[bg${i}][fg${i}];` +
+          
+          // Background: scale up, crop to fill, apply blur
+          `[bg${i}]scale=4320:7680:flags=${scaleAlgorithm}:force_original_aspect_ratio=increase,` +
+          `crop=${width * 2}:${height * 2},` +
+          `boxblur=30:15[bg_blur${i}];` +
+          
+          // Foreground: scale to fit with high quality
+          `[fg${i}]scale=${width * 2}:${height * 2}:flags=${scaleAlgorithm}:force_original_aspect_ratio=decrease[fg_scale${i}];` +
+          
+          // Composite foreground over blurred background
+          `[bg_blur${i}][fg_scale${i}]overlay=(W-w)/2:(H-h)/2[composed${i}];` +
+          
+          // Apply subtle zoom (Ken Burns effect) with high quality
+          `[composed${i}]zoompan=z='zoom+${zoomIncrement}':d=${framesPerImage}:` +
+          `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${width}x${height}:fps=${fps},` +
+          `setsar=1[v${i}]`
         );
         videoStreams.push(`[v${i}]`);
       });
 
-      // Create End Card
-      const safeBrandName = brandName.replace(/:/g, '\\:').replace(/'/g, '');
+      // End Card with brand name
+      const safeBrandName = brandName.replace(/:/g, '\\:').replace(/'/g, '').replace(/"/g, '');
       let fontPath = '';
       if (process.platform === 'win32') {
         fontPath = ':fontfile=C\\\\:/Windows/Fonts/arial.ttf';
       }
       
       filterComplex.push(
-        `color=c=black:s=1080x1920:d=${endCardDuration} [black_bg];` +
-        `[black_bg]drawtext=text='${safeBrandName}':fontcolor=white:fontsize=90:x=(w-text_w)/2:y=(h-text_h)/2${fontPath} [end_card]`
+        `color=c=black:s=${width}x${height}:d=${endCardDuration},fps=${fps}[black_bg];` +
+        `[black_bg]drawtext=text='${safeBrandName}':fontcolor=white:fontsize=90:` +
+        `x=(w-text_w)/2:y=(h-text_h)/2${fontPath}[end_card]`
       );
       videoStreams.push(`[end_card]`);
 
-      // Concatenate video
+      // Concatenate all video streams
       filterComplex.push(
-        `${videoStreams.join('')}concat=n=${images.length + 1}:v=1:a=0 [base_video]`
+        `${videoStreams.join('')}concat=n=${images.length + 1}:v=1:a=0[base_video]`
       );
 
       let lastVideoNode = '[base_video]';
 
-      // Overlay QR Code
+      // QR Code Overlay (high quality)
       if (qrPath) {
         const qrIndex = images.length;
         filterComplex.push(
-          `[${qrIndex}:v]scale=200:-1 [qr];` +
-          `[base_video][qr]overlay=main_w-overlay_w-50:50 [video_with_qr]`
+          `[${qrIndex}:v]scale=250:-1:flags=${scaleAlgorithm}[qr];` +
+          `[base_video][qr]overlay=main_w-overlay_w-50:50[video_with_qr]`
         );
         lastVideoNode = '[video_with_qr]';
       }
 
-      // Calculate audio input indices
+      // Audio processing
       const audioInputStartIndex = images.length + (qrPath ? 1 : 0);
       const bgMusicInputIndex = audioInputStartIndex + audioFiles.length;
-
       const hasVoiceover = audioFiles.length > 0;
       const hasBgMusic = bgMusicPath !== null;
 
-      // NEW: Sequential Voiceover Processing (NO trimming, NO gaps)
       if (hasVoiceover) {
-        console.log(`   🎙️ Concatenating ${audioFiles.length} voiceovers sequentially...`);
+        console.log(`   🎙️ Processing ${audioFiles.length} voiceovers...`);
         
-        // Process each audio file: normalize volume and ensure no silence at start/end
         audioFiles.forEach((_, i) => {
-          const audioInputIndex = audioInputStartIndex + i;
-          
-          // Trim silence from start/end, boost volume, ensure consistent format
+          const idx = audioInputStartIndex + i;
           filterComplex.push(
-            `[${audioInputIndex}:a]` +
-            `silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB,` + // Remove silence at start
-            `areverse,` + // Reverse to remove silence at end
-            `silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB,` + // Remove silence (from end)
-            `areverse,` + // Reverse back
-            `volume=1.5,` + // Boost volume
-            `aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo` + // Normalize format
-            `[a${i}]`
+            `[${idx}:a]silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB,` +
+            `areverse,silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB,areverse,` +
+            `volume=1.5,aformat=sample_fmts=fltp:sample_rates=${VIDEO_CONFIG.audioSampleRate}:channel_layouts=stereo[a${i}]`
           );
         });
 
-        // Concatenate ALL voiceovers with NO gaps
-        const voiceoverStreams = audioFiles.map((_, i) => `[a${i}]`).join('');
-        filterComplex.push(
-          `${voiceoverStreams}concat=n=${audioFiles.length}:v=0:a=1[voiceover_seamless]`
-        );
-
-        // Add silence for end card
-        filterComplex.push(
-          `anullsrc=channel_layout=stereo:sample_rate=44100:duration=${endCardDuration}[end_silence]`
-        );
-
-        // Concatenate voiceover + end card silence
-        filterComplex.push(
-          `[voiceover_seamless][end_silence]concat=n=2:v=0:a=1[voiceover_track]`
-        );
+        const voStreams = audioFiles.map((_, i) => `[a${i}]`).join('');
+        filterComplex.push(`${voStreams}concat=n=${audioFiles.length}:v=0:a=1[voiceover_seamless]`);
+        filterComplex.push(`anullsrc=channel_layout=stereo:sample_rate=${VIDEO_CONFIG.audioSampleRate}:duration=${endCardDuration}[end_silence]`);
+        filterComplex.push(`[voiceover_seamless][end_silence]concat=n=2:v=0:a=1[voiceover_track]`);
       }
 
-      // Process Background Music
       if (hasBgMusic) {
-        console.log(`   🎵 Adding background music with ducking...`);
-        
-        // Loop music to match video duration, reduce volume
+        console.log(`   🎵 Adding background music...`);
         filterComplex.push(
-          `[${bgMusicInputIndex}:a]aloop=loop=-1:size=2e+09,` +
-          `atrim=0:${totalVideoDuration},` +
-          `asetpts=PTS-STARTPTS,` +
-          `volume=0.15[bg_music_loop]`
+          `[${bgMusicInputIndex}:a]aloop=loop=-1:size=2e+09,atrim=0:${totalVideoDuration},` +
+          `asetpts=PTS-STARTPTS,volume=0.15[bg_music_loop]`
         );
 
         if (hasVoiceover) {
-          // Mix voiceover with music, ducking music when voice plays
           filterComplex.push(
-            `[bg_music_loop][voiceover_track]sidechaincompress=threshold=0.02:ratio=4:attack=200:release=1000[bg_music_ducked];` +
-            `[voiceover_track][bg_music_ducked]amix=inputs=2:duration=longest:weights=1.0 0.8[final_audio]`
+            `[bg_music_loop][voiceover_track]sidechaincompress=threshold=0.02:ratio=4:attack=200:release=1000[bg_ducked];` +
+            `[voiceover_track][bg_ducked]amix=inputs=2:duration=longest:weights=1.0 0.8[final_audio]`
           );
         } else {
-          // No voiceover, just use background music
-          filterComplex.push(
-            `[bg_music_loop]acopy[final_audio]`
-          );
+          filterComplex.push(`[bg_music_loop]acopy[final_audio]`);
         }
       } else if (hasVoiceover) {
-        // Voiceover only, no background music
-        filterComplex.push(
-          `[voiceover_track]acopy[final_audio]`
-        );
+        filterComplex.push(`[voiceover_track]acopy[final_audio]`);
       }
 
       command.complexFilter(filterComplex);
 
+      /**
+       * HIGH QUALITY OUTPUT OPTIONS
+       */
       const outputOptions = [
         '-y',
         '-map', lastVideoNode,
+        
+        // Video codec settings for maximum quality
         '-c:v', 'libx264',
+        '-preset', VIDEO_CONFIG.preset,
+        '-crf', VIDEO_CONFIG.crf.toString(),
+        '-b:v', VIDEO_CONFIG.videoBitrate,
+        '-maxrate', VIDEO_CONFIG.maxBitrate,
+        '-bufsize', VIDEO_CONFIG.bufferSize,
+        
+        // Pixel format for compatibility
         '-pix_fmt', 'yuv420p',
-        '-r', '30',
-        '-b:v', '5000k',
-        `-t`, `${totalVideoDuration}`
+        
+        // Frame rate
+        '-r', VIDEO_CONFIG.fps.toString(),
+        
+        // Duration
+        '-t', totalVideoDuration.toString(),
+        
+        // Additional quality flags
+        '-movflags', '+faststart',  // Web optimization
+        '-profile:v', 'high',        // H.264 profile
+        '-level', '4.1',             // H.264 level
       ];
 
       if (hasVoiceover || hasBgMusic) {
         outputOptions.push('-map', '[final_audio]');
-        command
-          .audioCodec('aac')
-          .audioBitrate('192k')
-          .audioFrequency(44100)
-          .audioChannels(2);
+        outputOptions.push(
+          '-c:a', 'aac',
+          '-b:a', VIDEO_CONFIG.audioBitrate,
+          '-ar', VIDEO_CONFIG.audioSampleRate.toString(),
+          '-ac', '2'
+        );
       }
 
       command.outputOptions(outputOptions);
 
       command
-        .on('start', (cmdLine) => {
-          console.log('   ℹ️ FFmpeg Command constructed.');
+        .on('start', (cmd) => {
+          console.log('   ℹ️ FFmpeg started with high-quality settings');
+          // Uncomment to debug: console.log(cmd);
         })
         .on('progress', (progress) => {
           if (progress.percent) {
@@ -350,14 +374,15 @@ class FfmpegService {
           }
         })
         .on('end', () => {
-          console.log(`\n✅ Video Rendered Successfully!`);
-          console.log(`   📂 Location: ${outputPath}`);
-          console.log(`   ⏱️ Final Duration: ${totalVideoDuration.toFixed(2)}s`);
-          console.log(`   🎤 Voiceover: ${totalAudioDuration.toFixed(2)}s (continuous)`);
+          console.log(`\n✅ HIGH QUALITY Video Rendered!`);
+          console.log(`   📂 Output: ${outputPath}`);
+          console.log(`   📐 Resolution: ${VIDEO_CONFIG.width}x${VIDEO_CONFIG.height}`);
+          console.log(`   ⏱️ Duration: ${totalVideoDuration.toFixed(2)}s`);
+          console.log(`   🎞️ Bitrate: ${VIDEO_CONFIG.videoBitrate}`);
           resolve({ success: true, path: outputPath });
         })
         .on('error', (err) => {
-          console.error('❌ FFmpeg Error:', err.message);
+          console.error('\n❌ FFmpeg Error:', err.message);
           reject(err);
         })
         .save(outputPath);
