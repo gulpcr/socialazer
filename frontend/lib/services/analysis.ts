@@ -1,12 +1,18 @@
 import api from '../api-client';
-import type { AnalysisResponse, GenerateScriptResponse,SuggestionsResponse } from '../api-types';
+import type { AnalysisResponse, GenerateScriptResponse, SuggestionsResponse } from '../api-types';
 
 export async function analyzeUrl(url: string): Promise<AnalysisResponse | any> {
   try {
     return await api.post<AnalysisResponse>('/analyze-url', { url });
     
-  } catch {
-    await api.post('/scrape', { url });
+  } catch (err:any) { 
+    try{
+      api.post('/scrape', { url });
+    } catch(err:any){
+      if (err.response?.status === 404) {
+        err.isFatal = true
+      } throw err
+    }
     const infoRes = await api.get('/info');
     return infoRes.data.scraped;
   }

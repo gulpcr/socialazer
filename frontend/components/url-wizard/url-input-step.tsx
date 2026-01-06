@@ -9,12 +9,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress"
 import { cn } from "@/lib/utils"
 import type { URLAnalysis } from "@/lib/types"
+import { useAnalyzeUrl } from "@/hooks/useAnalyzeUrl"
+import { AnalysisLoader } from "./analysis-loader"
 
-type AnalysisStep = {
-  id: string
-  label: string
-  status: "pending" | "loading" | "complete" | "error"
-}
+// type AnalysisStep = {
+//   id: string
+//   label: string
+//   status: "pending" | "loading" | "complete" | "error"
+// }
 
 interface URLInputStepProps {
   onComplete: (analysis: URLAnalysis) => void
@@ -23,18 +25,20 @@ interface URLInputStepProps {
 export function URLInputStep({ onComplete }: URLInputStepProps) {
   const [url, setUrl] = useState("")
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [progress, setProgress] = useState(0)
+  // const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>([
-    { id: "fetch", label: "Fetching page content", status: "pending" },
-    { id: "extract", label: "Extracting images & text", status: "pending" },
-    { id: "analyze", label: "Analyzing brand elements", status: "pending" },
-    { id: "generate", label: "Generating content structure", status: "pending" },
-  ])
+  // const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>([
+  //   { id: "fetch", label: "Fetching page content", status: "pending" },
+  //   { id: "extract", label: "Extracting images & text", status: "pending" },
+  //   { id: "analyze", label: "Analyzing brand elements", status: "pending" },
+  //   { id: "generate", label: "Generating content structure", status: "pending" },
+  // ])
 
-  const updateStepStatus = (stepId: string, status: AnalysisStep["status"]) => {
-    setAnalysisSteps((prev) => prev.map((step) => (step.id === stepId ? { ...step, status } : step)))
-  }
+  // const updateStepStatus = (stepId: string, status: AnalysisStep["status"]) => {
+  //   setAnalysisSteps((prev) => prev.map((step) => (step.id === stepId ? { ...step, status } : step)))
+  // }
+
+  const { runAnalyze } = useAnalyzeUrl()
 
   const analyzeURL = async () => {
     if (!url) {
@@ -51,48 +55,39 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
 
     setError(null)
     setIsAnalyzing(true)
-    setProgress(0)
+    // setProgress(0)
 
-    const steps = ["fetch", "extract", "analyze", "generate"]
-    const progressPerStep = 100 / steps.length
+    // const steps = ["fetch", "extract", "analyze", "generate"]
+    // const progressPerStep = 100 / steps.length
 
-    for (let i = 0; i < steps.length; i++) {
-      updateStepStatus(steps[i], "loading")
-      await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 400))
-      updateStepStatus(steps[i], "complete")
-      setProgress((i + 1) * progressPerStep)
+    // for (let i = 0; i < steps.length; i++) {
+    //   updateStepStatus(steps[i], "loading")
+    //   await new Promise((resolve) => setTimeout(resolve, 600 + Math.random() * 400))
+    //   updateStepStatus(steps[i], "complete")
+    //   setProgress((i + 1) * progressPerStep)
+    // }
+    // call API analyze endpoint and map response to URLAnalysis
+    try {
+      const res = await runAnalyze(url)
+      const mapped: URLAnalysis = {
+        id: res.id,
+        url: res.url,
+        title: res.title || '',
+        description: res.description || '',
+        pageType: (res.pageType as any) || 'product',
+        headlines: (res.headlines || []).map((h: any) => ({ text: h.text, included: !!h.included })),
+        valueProposition: res.valueProposition || '',
+        targetAudience: res.targetAudience || '',
+        images: (res.images || []).map((img: any) => ({ url: img.url, relevance: img.relevance || 'medium', selected: !!img.selected })),
+        brandColors: res.colors || [],
+        brandName: res.brandName || '',
+      }
+      setIsAnalyzing(false)
+      onComplete(mapped)
+    } catch (e: any) {
+      setIsAnalyzing(false)
+      setError(e?.message || 'Failed to analyze URL')
     }
-
-    // Mock analysis result
-    const mockAnalysis: URLAnalysis = {
-      id: "analysis-1",
-      url: url,
-      title: "Summer Collection 2024",
-      description:
-        "Discover our latest fashion trends with premium quality materials and modern designs. Up to 50% off selected items for a limited time.",
-      pageType: "product",
-      headlines: [
-        { text: "Summer Collection 2024 - New Arrivals", included: true },
-        { text: "Premium Quality, Affordable Prices", included: true },
-        { text: "Free Shipping on Orders Over $50", included: true },
-        { text: "Limited Time Offer", included: false },
-      ],
-      valueProposition:
-        "Transform your wardrobe with our curated summer collection featuring sustainable materials and timeless designs.",
-      targetAudience: "Fashion-conscious millennials and Gen Z looking for trendy, affordable clothing",
-      images: [
-        { url: "/fashion-model-summer.png", relevance: "high", selected: true },
-        { url: "/summer-dress-product.png", relevance: "high", selected: true },
-        { url: "/beach-accessories.png", relevance: "medium", selected: true },
-        { url: "/sunglasses-fashion.jpg", relevance: "medium", selected: false },
-        { url: "/summer-hat-straw.jpg", relevance: "low", selected: false },
-      ],
-      brandColors: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"],
-      brandName: "StyleHub",
-    }
-
-    setIsAnalyzing(false)
-    onComplete(mockAnalysis)
   }
 
   return (
@@ -167,7 +162,7 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
           <CardHeader>
             <CardTitle className="text-lg">Analyzing Page</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          {/* <CardContent className="space-y-4">
             <Progress value={progress} className="h-2" />
             <div className="space-y-2">
               {analysisSteps.map((step) => (
@@ -189,7 +184,8 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
                 </div>
               ))}
             </div>
-          </CardContent>
+          </CardContent> */}
+          <AnalysisLoader loading={isAnalyzing} error={error} />
         </Card>
       )}
     </div>

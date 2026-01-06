@@ -48,11 +48,15 @@ export default function CreateFromURLPage() {
     setCurrentStep(3)
   }
 
-  const handleConfigured = (data: VideoConfig) => {
+  const handleConfigured = (data: VideoConfig, generatedScript?: any) => {
     setConfig(data)
-    // Generate initial script
-    const generatedScript = generateMockScript(analysis!, data)
-    setScript(generatedScript)
+    if (generatedScript) {
+      setScript(generatedScript)
+    } else {
+      // fallback to mock script when backend isn't available
+      const generated = generateMockScript(analysis!, data)
+      setScript(generated)
+    }
     setCurrentStep(4)
   }
 
@@ -83,7 +87,7 @@ export default function CreateFromURLPage() {
           <WizardProgress steps={STEPS} currentStep={currentStep} onStepClick={setCurrentStep} />
 
           <div className="mt-8">
-            {currentStep === 1 && <URLInputStep onComplete={handleURLAnalyzed} />}
+            {currentStep === 1 && <URLInputStep onComplete={handleURLAnalyzed}  />}
             {currentStep === 2 && analysis && (
               <ContentReviewStep
                 analysis={analysis}
@@ -92,7 +96,12 @@ export default function CreateFromURLPage() {
               />
             )}
             {currentStep === 3 && analysis && (
-              <VideoConfigStep config={config} onComplete={handleConfigured} onBack={() => setCurrentStep(2)} />
+              <VideoConfigStep
+                config={config}
+                // analysisId={analysis.id}
+                onComplete={handleConfigured}
+                onBack={() => setCurrentStep(2)}
+              />
             )}
             {currentStep === 4 && script && (
               <ScriptEditorStep script={script} onComplete={handleScriptEdited} onBack={() => setCurrentStep(3)} />
