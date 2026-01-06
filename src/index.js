@@ -9,6 +9,8 @@ const soraRoutes = require('./routes/sora.routes.js');
 const configRoutes = require('./routes/config.routes.js');
 const infoRoutes = require('./routes/info.routes.js');
 const suggestionsRoutes = require('./routes/suggestions.routes');
+const voiceoverRoutes = require('./routes/voice.routes');
+const path = require('path');
 
 
 
@@ -38,6 +40,11 @@ app.use('/api/v1', reelgenRoutes);
 app.use('/api/v1', soraRoutes);
 // Register routes
 app.use('/api/v1', suggestionsRoutes);
+// Register routes
+app.use('/api/v1', voiceoverRoutes);
+
+// IMPORTANT: Serve voiceover files as static assets
+app.use('/voiceovers', express.static(path.join(__dirname, 'assets/voiceovers')));
 
 // Simple root endpoint
 app.get("/", (req, res) => {
