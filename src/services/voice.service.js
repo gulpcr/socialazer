@@ -12,14 +12,15 @@ class VoiceService {
   }
 
   /**
-   * EXISTING FUNCTION - Generates a single MP3 voiceover file from the script.
+   * UPDATED FUNCTION - Generates SEPARATE MP3 files for EACH scene
+   * This ensures perfect sync and allows voiceover to play throughout the entire video
    * Supports both NEW format (scenes) and OLD format (elements).
    * Cleans the directory first (POC mode).
    * @param {Object} scriptData - The JSON object from script.service
    */
   async generateVoiceover(scriptData) {
     try {
-      console.log('🗣️ Starting Voiceover Generation...');
+      console.log('🗣️ Starting Scene-by-Scene Voiceover Generation...');
 
       // 1. Validation
       if (!this.apiKey || !this.voiceId) {
@@ -34,73 +35,119 @@ class VoiceService {
       fs.mkdirSync(this.audioDir, { recursive: true });
 
       // 3. Extract voiceover text from script (handle both formats)
-      let voiceParts = [];
+      let scenesWithVoiceover = [];
 
       // NEW FORMAT: scenes array
       if (scriptData.scenes && Array.isArray(scriptData.scenes)) {
         console.log('   📝 Processing NEW script format (scenes)...');
-        voiceParts = scriptData.scenes
-          .filter(scene => scene.voiceOver && scene.voiceOver.trim().length > 0)
-          .map(scene => scene.voiceOver.trim());
+        scenesWithVoiceover = scriptData.scenes
+          .map((scene, index) => ({
+            index,
+            text: scene.voiceOver?.trim() || '',
+            duration: scene.duration || 5
+          }))
+          .filter(scene => scene.text.length > 0);
       }
       // OLD FORMAT: elements array
       else if (scriptData.elements && Array.isArray(scriptData.elements)) {
         console.log('   📝 Processing OLD script format (elements)...');
-        voiceParts = scriptData.elements
+        scenesWithVoiceover = scriptData.elements
           .filter(el => el.type === 'audio' || el.type === 'voiceover')
-          .map(el => el.source || el.text)
-          .filter(text => text && text.trim().length > 0);
+          .map((el, index) => ({
+            index,
+            text: (el.source || el.text || '').trim(),
+            duration: el.duration || 5
+          }))
+          .filter(scene => scene.text.length > 0);
       }
       else {
         throw new Error('Invalid script data: No scenes or elements found.');
       }
 
-      if (voiceParts.length === 0) {
+      if (scenesWithVoiceover.length === 0) {
         console.log('ℹ️ No voiceover elements found in script. Skipping.');
         return null;
       }
 
-      // Combine all parts into one string for a smooth flow
-      const fullText = voiceParts.join(' ');
-      console.log(`   Text to generate (${fullText.length} chars): "${fullText.substring(0, 50)}..."`);
+      console.log(`   🎤 Generating ${scenesWithVoiceover.length} separate voiceover files...`);
 
-      // 4. Call ElevenLabs API
-      const outputPath = path.join(this.audioDir, 'voiceover.mp3');
-      
-      const response = await axios({
-        method: 'post',
-        url: `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`,
-        headers: {
-          'Accept': 'audio/mpeg',
-          'xi-api-key': this.apiKey,
-          'Content-Type': 'application/json'
-        },
-        data: {
-          text: fullText,
-          model_id: "eleven_multilingual_v2",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75
-          }
-        },
-        responseType: 'stream'
-      });
+      // 4. Generate voiceover for EACH scene separately
+      const generatedFiles = [];
 
-      // 5. Save to file
-      const writer = fs.createWriteStream(outputPath);
-      response.data.pipe(writer);
+      for (let i = 0; i < scenesWithVoiceover.length; i++) {
+        const scene = scenesWithVoiceover[i];
+        const sceneNum = scene.index + 1;
+        const filename = `scene_${sceneNum}.mp3`;
+        const outputPath = path.join(this.audioDir, filename);
 
-      return new Promise((resolve, reject) => {
-        writer.on('finish', () => {
-          console.log(`✅ Voiceover saved locally at: ${outputPath}`);
-          resolve({
-            success: true,
-            audioPath: outputPath,
-            textUsed: fullText
+        console.log(`   🎙️  Scene ${sceneNum}: "${scene.text.substring(0, 40)}..."`);
+
+        try {
+          // Call ElevenLabs API for this scene
+          const response = await axios({
+            method: 'post',
+            url: `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`,
+            headers: {
+              'Accept': 'audio/mpeg',
+              'xi-api-key': this.apiKey,
+              'Content-Type': 'application/json'
+            },
+            data: {
+              text: scene.text,
+              model_id: "eleven_multilingual_v2",
+              voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75
+              }
+            },
+            responseType: 'stream',
+            timeout: 30000 // 30 second timeout
           });
-        });
-        writer.on('error', reject);
-      });
+
+          // Save to file
+          await new Promise((resolve, reject) => {
+            const writer = fs.createWriteStream(outputPath);
+            response.data.pipe(writer);
+
+            writer.on('finish', () => {
+              console.log(`      ✅ Saved: ${filename}`);
+              generatedFiles.push({
+                sceneIndex: scene.index,
+                filename,
+                path: outputPath,
+                text: scene.text,
+                duration: scene.duration
+              });
+              resolve();
+            });
+
+            writer.on('error', reject);
+          });
+
+          // Small delay between API calls to avoid rate limiting
+          if (i < scenesWithVoiceover.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+          }
+
+        } catch (error) {
+          console.error(`      ❌ Failed to generate voiceover for scene ${sceneNum}:`, error.message);
+          // Continue with other scenes even if one fails
+        }
+      }
+
+      if (generatedFiles.length === 0) {
+        console.error('❌ No voiceover files were generated successfully');
+        return null;
+      }
+
+      console.log(`✅ Generated ${generatedFiles.length} voiceover files successfully`);
+
+      return {
+        success: true,
+        audioDir: this.audioDir,
+        files: generatedFiles,
+        totalFiles: generatedFiles.length
+      };
 
     } catch (error) {
       console.error('❌ Voiceover Generation Failed:', error.response?.data || error.message);
@@ -150,8 +197,6 @@ class VoiceService {
       const voiceSettings = {
         stability: settings.stability || 0.75,
         similarity_boost: settings.clarity || 0.85,
-        // Note: ElevenLabs doesn't directly support speed/pitch in the same way
-        // You may need to use their voice design API for those features
       };
 
       console.log(`   Text: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
@@ -190,15 +235,10 @@ class VoiceService {
           // Rough estimation: ~1KB per 0.1 seconds of audio at 128kbps
           const estimatedDuration = (fileSizeKB / 10) * 0.1;
 
-          // In a production environment, you'd want to:
-          // 1. Upload to cloud storage (S3, Cloudinary, etc.)
-          // 2. Get the public URL
-          // For now, we'll return a local path that could be served via Express static
-
           resolve({
             id: voId,
-            audioUrl: `/voiceovers/${filename}`, // Relative URL for serving via Express
-            localPath: outputPath, // Absolute local path
+            audioUrl: `/voiceovers/${filename}`,
+            localPath: outputPath,
             duration: parseFloat(estimatedDuration.toFixed(2)),
             format: 'mp3',
             sampleRate: 44100,
@@ -228,13 +268,7 @@ class VoiceService {
   async getVoicePresets() {
     try {
       console.log('🎭 Fetching voice presets...');
-
-      // Option 1: Fetch from ElevenLabs API (if you have access)
-      // const response = await axios.get('https://api.elevenlabs.io/v1/voices', {
-      //   headers: { 'xi-api-key': this.apiKey }
-      // });
       
-      // Option 2: Return predefined presets (more reliable for now)
       const presets = [
         {
           id: '21m00Tcm4TlvDq8ikWAM',
@@ -323,22 +357,18 @@ class VoiceService {
 
     } catch (error) {
       console.error('❌ Failed to fetch voice presets:', error.message);
-      // Return empty array instead of throwing to prevent API failures
       return [];
     }
   }
 
   /**
    * Helper function to get audio duration (for future enhancement)
-   * Requires ffprobe or similar tool
    */
   async getAudioDuration(filePath) {
-    // This would require ffprobe or a similar tool
-    // For now, return estimated duration based on file size
     try {
       const stats = fs.statSync(filePath);
       const fileSizeKB = stats.size / 1024;
-      return (fileSizeKB / 10) * 0.1; // Rough estimation
+      return (fileSizeKB / 10) * 0.1;
     } catch {
       return 0;
     }

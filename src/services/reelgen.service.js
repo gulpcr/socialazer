@@ -135,53 +135,153 @@ class ReelGenService {
           }
 
           // --- 3. HANDLE TEXT (On-screen text) ---
-          if (scene.text) {
-            const textElement = {
-              type: 'text',
-              track: 100,
-              time: currentCursor,
-              duration: sceneDuration,
-              text: scene.text,
-              fill_color: '#ffffff',
-              font_family: 'Montserrat',
-              font_weight: '700',
-              font_size: '8 vmin',
-              width: '86.66%',
-              height: '37.71%',
-              x_alignment: '50%',
-              y_alignment: '50%',
-              stroke_color: '#333333',
-              stroke_width: '1.05 vmin',
-              background_color: 'rgba(0,0,0,0.7)',
-              background_x_padding: '26%',
-              background_y_padding: '7%',
-              background_border_radius: '28%'
-            };
+          // NEW FORMAT: Handle primary_text and secondary_text
+          const hasPrimaryText = scene.primary_text && scene.primary_text.trim().length > 0;
+          const hasSecondaryText = scene.secondary_text && scene.secondary_text.trim().length > 0;
+          const hasOldText = scene.text && scene.text.trim().length > 0;
 
-            // If voiceover exists, sync text with audio
-            if (scene.voiceOver) {
-              textElement.transcript_source = `Voiceover-${sceneIndex}`;
-              textElement.transcript_effect = 'highlight';
-              textElement.animations = [{
-                time: 0,
-                duration: 1,
-                easing: 'quadratic-out',
-                type: 'text-slide',
-                scope: 'split-clip',
-                split: 'line',
-                background_effect: 'scaling-clip'
-              }];
-            } else {
-              textElement.animations = [{
-                time: 0,
-                duration: 1.5,
-                easing: 'quadratic-out',
-                type: 'scale',
-                start_scale: '50%'
-              }];
+          if (hasPrimaryText || hasSecondaryText || hasOldText) {
+            // Determine text style
+            const textStyle = scene.text_style || 'normal';
+            let fontWeight = '700';
+            let textTransform = 'none';
+            
+            if (textStyle === 'bold' || textStyle === 'bold_uppercase') {
+              fontWeight = '900';
+            }
+            if (textStyle === 'uppercase' || textStyle === 'bold_uppercase') {
+              textTransform = 'uppercase';
             }
 
-            creatomateElements.push(textElement);
+            // PRIMARY TEXT (if exists)
+            if (hasPrimaryText) {
+              const primaryTextElement = {
+                type: 'text',
+                track: 100,
+                time: currentCursor,
+                duration: sceneDuration,
+                text: textTransform === 'uppercase' ? scene.primary_text.toUpperCase() : scene.primary_text,
+                fill_color: '#ffffff',
+                font_family: 'Montserrat',
+                font_weight: fontWeight,
+                font_size: '10 vmin', // Larger for primary
+                width: '86.66%',
+                x_alignment: '50%',
+                y_alignment: hasSecondaryText ? '40%' : '50%', // Higher if there's secondary text
+                stroke_color: '#333333',
+                stroke_width: '1.2 vmin',
+                background_color: 'rgba(0,0,0,0.7)',
+                background_x_padding: '20%',
+                background_y_padding: '5%',
+                background_border_radius: '20%'
+              };
+
+              if (scene.voiceOver) {
+                primaryTextElement.transcript_source = `Voiceover-${sceneIndex}`;
+                primaryTextElement.transcript_effect = 'highlight';
+                primaryTextElement.animations = [{
+                  time: 0,
+                  duration: 1,
+                  easing: 'quadratic-out',
+                  type: 'text-slide',
+                  scope: 'split-clip',
+                  split: 'line',
+                  background_effect: 'scaling-clip'
+                }];
+              } else {
+                primaryTextElement.animations = [{
+                  time: 0,
+                  duration: 1.5,
+                  easing: 'quadratic-out',
+                  type: 'scale',
+                  start_scale: '50%'
+                }];
+              }
+
+              creatomateElements.push(primaryTextElement);
+            }
+
+            // SECONDARY TEXT (if exists)
+            if (hasSecondaryText) {
+              const secondaryTextElement = {
+                type: 'text',
+                track: 101,
+                time: currentCursor,
+                duration: sceneDuration,
+                text: scene.secondary_text,
+                fill_color: '#ffffff',
+                font_family: 'Montserrat',
+                font_weight: '600',
+                font_size: '6 vmin', // Smaller for secondary
+                width: '80%',
+                x_alignment: '50%',
+                y_alignment: '60%', // Below primary text
+                stroke_color: '#333333',
+                stroke_width: '0.8 vmin',
+                background_color: 'rgba(0,0,0,0.6)',
+                background_x_padding: '15%',
+                background_y_padding: '3%',
+                background_border_radius: '15%',
+                animations: [{
+                  time: 0.5, // Slight delay after primary
+                  duration: 1,
+                  easing: 'quadratic-out',
+                  type: 'scale',
+                  start_scale: '80%'
+                }]
+              };
+
+              creatomateElements.push(secondaryTextElement);
+            }
+
+            // FALLBACK: OLD TEXT FORMAT (if no primary/secondary but has text)
+            if (!hasPrimaryText && !hasSecondaryText && hasOldText) {
+              const textElement = {
+                type: 'text',
+                track: 100,
+                time: currentCursor,
+                duration: sceneDuration,
+                text: scene.text,
+                fill_color: '#ffffff',
+                font_family: 'Montserrat',
+                font_weight: '700',
+                font_size: '8 vmin',
+                width: '86.66%',
+                height: '37.71%',
+                x_alignment: '50%',
+                y_alignment: '50%',
+                stroke_color: '#333333',
+                stroke_width: '1.05 vmin',
+                background_color: 'rgba(0,0,0,0.7)',
+                background_x_padding: '26%',
+                background_y_padding: '7%',
+                background_border_radius: '28%'
+              };
+
+              if (scene.voiceOver) {
+                textElement.transcript_source = `Voiceover-${sceneIndex}`;
+                textElement.transcript_effect = 'highlight';
+                textElement.animations = [{
+                  time: 0,
+                  duration: 1,
+                  easing: 'quadratic-out',
+                  type: 'text-slide',
+                  scope: 'split-clip',
+                  split: 'line',
+                  background_effect: 'scaling-clip'
+                }];
+              } else {
+                textElement.animations = [{
+                  time: 0,
+                  duration: 1.5,
+                  easing: 'quadratic-out',
+                  type: 'scale',
+                  start_scale: '50%'
+                }];
+              }
+
+              creatomateElements.push(textElement);
+            }
           }
 
           currentCursor += sceneDuration;

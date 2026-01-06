@@ -63,8 +63,19 @@ class ScriptService {
 
       // Calculate scene parameters
       const targetDuration = parseInt(duration);
-      const sceneDuration = targetDuration <= 15 ? 3 : targetDuration <= 30 ? 5 : 6;
-      const numScenes = Math.ceil(targetDuration / sceneDuration);
+      const endCardDuration = 5;
+      const scenesTotalDuration = targetDuration - endCardDuration;
+      
+      const sceneDuration = scenesTotalDuration <= 10 ? 3 : scenesTotalDuration <= 20 ? 5 : 5;
+      const numScenes = Math.floor(scenesTotalDuration / sceneDuration);
+      
+      // Calculate words needed per scene for proper pacing
+      // Average speaking rate: 140-160 words per minute = ~2.5 words per second
+      const wordsPerSecond = 2.5;
+      const targetWordsPerScene = Math.floor(sceneDuration * wordsPerSecond);
+      
+      console.log(`📊 Duration breakdown: Total ${targetDuration}s = Scenes ${scenesTotalDuration}s + End Card ${endCardDuration}s`);
+      console.log(`🎤 Target: ~${targetWordsPerScene} words per ${sceneDuration}s scene`);
 
       // Prepare image descriptions for AI
       const imageDescriptions = selectedImages.map((img, idx) => ({
@@ -76,7 +87,8 @@ class ScriptService {
 
       const systemPrompt = `You are an expert video scriptwriter specializing in ${platform} ads.
 
-Generate a ${targetDuration}-second video script with exactly ${numScenes} scenes.
+Generate a ${scenesTotalDuration}-second video script with exactly ${numScenes} scenes.
+NOTE: These scenes will be followed by a ${endCardDuration}-second end card, totaling ${targetDuration} seconds.
 
 BRAND CONTEXT:
 - Brand: ${brandName}
@@ -95,22 +107,38 @@ ${imageDescriptions.map(img => `[${img.index}] ${img.category}: ${img.descriptio
 
 REQUIREMENTS:
 - Platform: ${platform}
-- Duration: ${targetDuration} seconds total
+- Scenes Duration: ${scenesTotalDuration} seconds (followed by ${endCardDuration}s end card)
+- Total Video Duration: ${targetDuration} seconds
 - Aspect Ratio: ${aspectRatio}
 - Tone: ${tone}
 - Voice Style: ${voiceStyle}
 - Each scene should be approximately ${sceneDuration} seconds
+- **CRITICAL**: Each voiceOver must be approximately ${targetWordsPerScene} words (~${sceneDuration}s of speech)
+
+VOICEOVER LENGTH REQUIREMENTS:
+- Speaking rate: ~2.5 words per second
+- Each ${sceneDuration}s scene needs ~${targetWordsPerScene} words
+- Write COMPLETE SENTENCES with natural flow
+- Add detail, context, and emotion to fill the time
+- Example BAD (too short): "Premium coffee beans"
+- Example GOOD (proper length): "Discover our premium, hand-selected coffee beans, carefully roasted to perfection to bring out rich, bold flavors that coffee lovers crave every morning"
 
 CRITICAL INSTRUCTIONS:
-1. Match images to narration semantically (e.g., if talking about a laptop, use laptop image)
-2. Start with an attention-grabbing hook
-3. Include key benefits and features
-4. End with a clear call-to-action
-5. Keep text concise for ${platform}
-6. Match ${tone} tone and ${voiceStyle} voice throughout
-7. Use primary_text for main headlines (max 5 words)
-8. Use secondary_text for supporting details or subtitles (max 8 words)
-9. Select appropriate text_style based on emphasis needed
+1. **VOICEOVER MUST BE DETAILED AND DESCRIPTIVE** - No short phrases!
+2. Match images to narration semantically (e.g., if talking about a laptop, use laptop image)
+3. Start with an attention-grabbing hook with detail
+4. Include key benefits and features WITH EXPLANATIONS
+5. End with a clear, detailed call-to-action that leads into the end card
+6. Keep primary_text concise (max 5 words) but voiceOver MUST be longer
+7. Use secondary_text for supporting details (max 8 words)
+8. Match ${tone} tone and ${voiceStyle} voice throughout
+9. Each voiceOver should tell a mini-story or explain a benefit thoroughly
+10. Build momentum across scenes - start engaging, build interest, end with action
+
+SCENE STRUCTURE GUIDE:
+- Scene 1 (Hook): Grab attention with a compelling statement + context
+- Middle Scenes: Explain features/benefits with descriptive language
+- Final Scene: Strong call-to-action with urgency and reason
 
 OUTPUT FORMAT (JSON only, no markdown):
 {
@@ -118,10 +146,10 @@ OUTPUT FORMAT (JSON only, no markdown):
     {
       "order": 1,
       "duration": ${sceneDuration},
-      "primary_text": "Main headline or key message",
-      "secondary_text": "Supporting text or subtitle",
+      "primary_text": "Main headline (max 5 words)",
+      "secondary_text": "Supporting text (max 8 words)",
       "text_style": "bold|normal|italic|uppercase",
-      "voiceOver": "Spoken narration",
+      "voiceOver": "Detailed spoken narration with approximately ${targetWordsPerScene} words. This should be a complete, flowing sentence or two that provides context, detail, and emotion. Make it conversational and engaging.",
       "imageIndex": 0,
       "animation": "fade-in",
       "transition": "fade"
@@ -131,19 +159,21 @@ OUTPUT FORMAT (JSON only, no markdown):
 
 Available text_style: bold, normal, italic, uppercase, bold_uppercase
 Available animations: fade-in, zoom-in, slide-up, pan, zoom-out
-Available transitions: fade, cut, dissolve, slide`;
+Available transitions: fade, cut, dissolve, slide
+
+REMEMBER: Longer voiceOver = Better engagement. Write naturally as if speaking to a friend, explaining why they should care about this product.`;
 
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o',
         messages: [{ role: 'system', content: systemPrompt }],
         response_format: { type: "json_object" },
-        temperature: 0.6,
-        max_tokens: 2000
+        temperature: 0.7, // Slightly higher for more creative, longer text
+        max_tokens: 3000 // Increased for longer responses
       });
 
       const jsonScript = JSON.parse(completion.choices[0].message.content);
 
-      // Process and format scenes
+      // Process and validate scenes
       const scenes = (jsonScript.scenes || []).map((scene, idx) => {
         let imageIndex = scene.imageIndex;
         
@@ -153,6 +183,17 @@ Available transitions: fade, cut, dissolve, slide`;
         }
 
         const selectedImage = selectedImages[imageIndex];
+        
+        // Validate voiceOver length
+        const wordCount = (scene.voiceOver || '').trim().split(/\s+/).length;
+        const estimatedDuration = wordCount / wordsPerSecond;
+        
+        console.log(`   Scene ${idx + 1}: ${wordCount} words (~${estimatedDuration.toFixed(1)}s estimated)`);
+        
+        // Warn if too short
+        if (wordCount < targetWordsPerScene * 0.7) {
+          console.warn(`   ⚠️ Scene ${idx + 1} voiceOver may be too short (${wordCount} words)`);
+        }
 
         return {
           id: `scene_${idx + 1}`,
@@ -213,15 +254,6 @@ Available transitions: fade, cut, dissolve, slide`;
     }
   }
 
-  /**
-   * ENHANCED UPDATE SCRIPT FUNCTION
-   * Supports multiple update operations:
-   * 1. Update entire scenes array
-   * 2. Update specific scenes by ID
-   * 3. Add new scenes at specific positions
-   * 4. Remove scenes
-   * 5. Reorder scenes
-   */
   async updateScript(updates) {
     try {
       const currentScript = await this.getCurrentScript();
@@ -232,7 +264,7 @@ Available transitions: fade, cut, dissolve, slide`;
 
       let updatedScenes = [...currentScript.scenes];
 
-      // OPERATION 1: Replace entire scenes array
+      // Replace entire scenes array
       if (updates.scenes && Array.isArray(updates.scenes)) {
         console.log('🔄 Replacing entire scenes array...');
         updatedScenes = updates.scenes.map((scene, idx) => ({
@@ -242,20 +274,17 @@ Available transitions: fade, cut, dissolve, slide`;
         }));
       }
 
-      // OPERATION 2: Update specific scenes by ID
+      // Update specific scenes by ID
       if (updates.updateScenes && Array.isArray(updates.updateScenes)) {
         console.log('✏️ Updating specific scenes...');
         updates.updateScenes.forEach(sceneUpdate => {
           const sceneIndex = updatedScenes.findIndex(s => s.id === sceneUpdate.id);
           
           if (sceneIndex !== -1) {
-            // Merge updates into existing scene
             updatedScenes[sceneIndex] = {
               ...updatedScenes[sceneIndex],
               ...sceneUpdate,
-              // Preserve ID
               id: updatedScenes[sceneIndex].id,
-              // Update visuals properly if provided
               visuals: sceneUpdate.visuals ? {
                 ...updatedScenes[sceneIndex].visuals,
                 ...sceneUpdate.visuals
@@ -265,7 +294,7 @@ Available transitions: fade, cut, dissolve, slide`;
         });
       }
 
-      // OPERATION 3: Add new scenes
+      // Add new scenes
       if (updates.addScenes && Array.isArray(updates.addScenes)) {
         console.log('➕ Adding new scenes...');
         updates.addScenes.forEach(newScene => {
@@ -286,7 +315,7 @@ Available transitions: fade, cut, dissolve, slide`;
         });
       }
 
-      // OPERATION 4: Remove scenes
+      // Remove scenes
       if (updates.removeScenes && Array.isArray(updates.removeScenes)) {
         console.log('🗑️ Removing scenes...');
         updatedScenes = updatedScenes.filter(scene => 
@@ -294,7 +323,7 @@ Available transitions: fade, cut, dissolve, slide`;
         );
       }
 
-      // OPERATION 5: Reorder scenes
+      // Reorder scenes
       if (updates.reorderScenes && Array.isArray(updates.reorderScenes)) {
         console.log('🔀 Reordering scenes...');
         const reorderedScenes = [];
@@ -306,7 +335,6 @@ Available transitions: fade, cut, dissolve, slide`;
           }
         });
         
-        // Add any scenes that weren't in the reorder list
         updatedScenes.forEach(scene => {
           if (!updates.reorderScenes.includes(scene.id)) {
             reorderedScenes.push(scene);
@@ -336,7 +364,6 @@ Available transitions: fade, cut, dissolve, slide`;
         updatedAt: new Date().toISOString()
       };
 
-      // Save updated script
       await this.saveScriptToCsv(updatedScript);
       console.log('💾 Script updated successfully');
 
@@ -357,10 +384,8 @@ Available transitions: fade, cut, dissolve, slide`;
       console.log('🎬 Generating scenes with GPT...');
       const scenes = await this.generateScriptWithGPT(scrapedData, config);
 
-      // Calculate total duration
       const totalDuration = scenes.reduce((sum, scene) => sum + scene.duration, 0);
 
-      // Create final script object
       const scriptResult = {
         id: `script_${uuidv4().split('-')[0]}`,
         scenes: scenes,
@@ -368,7 +393,6 @@ Available transitions: fade, cut, dissolve, slide`;
         createdAt: new Date().toISOString()
       };
 
-      // Save script to CSV
       await this.saveScriptToCsv(scriptResult);
       console.log('💾 Script saved successfully');
 

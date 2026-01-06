@@ -2,12 +2,12 @@
 const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
 const fs = require('fs');
-const Papa = require('papaparse'); // Requires: npm install papaparse
+const Papa = require('papaparse');
 
 let ffmpegPath = 'ffmpeg';
 let ffprobePath = 'ffprobe';
 
-// 1. Setup FFmpeg Binaries
+// Setup FFmpeg Binaries
 try {
   ffmpegPath = require('ffmpeg-static');
   console.log('✅ Using ffmpeg-static');
@@ -29,6 +29,7 @@ class FfmpegService {
   constructor() {
     this.imagesDir = path.join(__dirname, '../assets/images');
     this.audioDir = path.join(__dirname, '../assets/audio');
+    this.musicDir = path.join(__dirname, '../assets/music');
     this.qrDir = path.join(__dirname, '../assets/qr');
     this.outputDir = path.join(__dirname, '../assets/videos');
     this.scrapedCsvPath = path.join(__dirname, '../scraped.csv');
@@ -38,10 +39,6 @@ class FfmpegService {
     return filePath.replace(/\\/g, '/');
   }
 
-  /**
-   * Reads the Brand Name from scraped.csv to display on the end card
-   * Updated to handle both old and new scraped data formats
-   */
   async getBrandName() {
     try {
       if (!fs.existsSync(this.scrapedCsvPath)) return 'VISIT US';
@@ -55,16 +52,11 @@ class FfmpegService {
               try {
                 const parsed = JSON.parse(results.data[0].data);
                 
-                // NEW FORMAT: branding.brandName
                 if (parsed.branding && parsed.branding.brandName) {
                   resolve(parsed.branding.brandName);
-                } 
-                // OLD FORMAT: brandName
-                else if (parsed.brandName) {
+                } else if (parsed.brandName) {
                   resolve(parsed.brandName);
-                } 
-                // FALLBACK
-                else {
+                } else {
                   resolve('VISIT US');
                 }
               } catch (e) { 
@@ -82,15 +74,71 @@ class FfmpegService {
   }
 
   /**
+   * Get all scene audio files sorted by scene number
+   */
+  getAllAudioFiles() {
+    if (!fs.existsSync(this.audioDir)) return [];
+    
+    const audioFiles = fs.readdirSync(this.audioDir)
+      .filter(f => f.endsWith('.mp3') && f.match(/scene_\d+\.mp3/))
+      .sort((a, b) => {
+        const numA = parseInt(a.match(/scene_(\d+)/)?.[1] || 0);
+        const numB = parseInt(b.match(/scene_(\d+)/)?.[1] || 0);
+        return numA - numB;
+      })
+      .map(f => path.join(this.audioDir, f));
+    
+    console.log(`   🎤 Found ${audioFiles.length} scene audio files`);
+    return audioFiles;
+  }
+
+  /**
+   * Get background music file
+   */
+  getBackgroundMusicPath() {
+    if (!fs.existsSync(this.musicDir)) {
+      console.log('   ℹ️ No music directory found, skipping background music');
+      return null;
+    }
+    
+    const musicFiles = fs.readdirSync(this.musicDir)
+      .filter(f => f.match(/\.(mp3|wav|m4a|aac)$/i));
+    
+    if (musicFiles.length === 0) {
+      console.log('   ℹ️ No music files found, skipping background music');
+      return null;
+    }
+    
+    const musicPath = path.join(this.musicDir, musicFiles[0]);
+    console.log(`   🎵 Found background music: ${musicFiles[0]}`);
+    return musicPath;
+  }
+
+  /**
    * Get exact audio duration using ffprobe
    */
   getAudioDuration(filePath) {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, metadata) => {
-        if (err) return resolve(0); // Fallback
+        if (err) return resolve(0);
         resolve(metadata.format.duration || 0);
       });
     });
+  }
+
+  /**
+   * NEW: Get durations of all audio files
+   */
+  async getAllAudioDurations(audioFiles) {
+    const durations = [];
+    
+    for (let i = 0; i < audioFiles.length; i++) {
+      const duration = await this.getAudioDuration(audioFiles[i]);
+      durations.push(duration);
+      console.log(`      Scene ${i + 1}: ${duration.toFixed(2)}s`);
+    }
+    
+    return durations;
   }
 
   async createVideo(config) {
@@ -100,81 +148,75 @@ class FfmpegService {
     
     const outputPath = path.join(this.outputDir, 'output.mp4');
     const images = this.getSortedImages();
-    const audioPath = this.getAudioPath();
+    const audioFiles = this.getAllAudioFiles();
+    const bgMusicPath = this.getBackgroundMusicPath();
     const qrPath = this.getQrPath();
     const brandName = await this.getBrandName();
 
     if (images.length === 0) throw new Error('No images found.');
 
-    // --- DURATION LOGIC ---
-    let slideshowDuration = config.duration || 15;
-    let endCardDuration = 3; // Minimum end card length
+    // NEW APPROACH: Audio duration drives video length
     let totalAudioDuration = 0;
-
-    if (audioPath) {
-        totalAudioDuration = await this.getAudioDuration(audioPath);
-        console.log(`   🎤  Audio Duration: ${totalAudioDuration}s`);
-        
-        // If audio is longer than the configured slideshow, extend the end card
-        if (totalAudioDuration > slideshowDuration) {
-            endCardDuration = totalAudioDuration - slideshowDuration;
-            // Ensure end card isn't too short (at least 2 seconds)
-            if (endCardDuration < 2) endCardDuration = 2;
-        }
+    let audioDurations = [];
+    
+    if (audioFiles.length > 0) {
+      console.log(`   🎤 Analyzing voiceover durations...`);
+      audioDurations = await this.getAllAudioDurations(audioFiles);
+      totalAudioDuration = audioDurations.reduce((sum, dur) => sum + dur, 0);
+      console.log(`   📊 Total Voiceover: ${totalAudioDuration.toFixed(2)}s`);
     }
 
+    // Calculate durations
+    const endCardDuration = 5;
+    const slideshowDuration = totalAudioDuration > 0 ? totalAudioDuration : (config.duration || 25) - endCardDuration;
     const totalVideoDuration = slideshowDuration + endCardDuration;
+    
+    // Divide slideshow duration evenly among images
     const durationPerImage = slideshowDuration / images.length;
-    const framesPerImage = Math.ceil(durationPerImage * 30); 
+    const framesPerImage = Math.ceil(durationPerImage * 30);
 
-    console.log(`   ⏱️  Slideshow: ${slideshowDuration}s | End Card: ${endCardDuration.toFixed(1)}s`);
-    console.log(`   🎞️  Total Video: ${totalVideoDuration.toFixed(1)}s`);
+    console.log(`   ⏱️ Slideshow: ${slideshowDuration.toFixed(2)}s (audio-driven)`);
+    console.log(`   ⏱️ End Card: ${endCardDuration}s`);
+    console.log(`   🎞️ Total Video: ${totalVideoDuration.toFixed(2)}s`);
+    console.log(`   📸 ${images.length} scenes x ${durationPerImage.toFixed(2)}s each`);
 
     return new Promise((resolve, reject) => {
       let command = ffmpeg();
 
-      // Inputs
+      // Add image inputs
       images.forEach(img => command.input(this.formatPath(img)));
+      
+      // Add QR input
       if (qrPath) command.input(this.formatPath(qrPath));
-      if (audioPath) command.input(this.formatPath(audioPath));
+      
+      // Add all audio inputs
+      audioFiles.forEach(audioFile => command.input(this.formatPath(audioFile)));
+      
+      // Add background music input
+      if (bgMusicPath) command.input(this.formatPath(bgMusicPath));
 
       const filterComplex = [];
       const videoStreams = [];
 
-      // 1. Process Images (Slideshow)
+      // Process Images (Slideshow) - each image gets equal time
       images.forEach((_, i) => {
-        // FIX: TREMBLING EFFECT
-        // We scale to 2160x3840 (2x) BEFORE zoompan. This "supersampling" prevents pixel jitter.
-        // We scale back down to 1080x1920 at the end of the chain.
-        
         filterComplex.push(
-            `[${i}:v]split=2 [bg${i}] [fg${i}];` +
-            // Background: Blur
-            `[bg${i}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10 [bg_blurred${i}];` +
-            // Foreground: Fit
-            `[fg${i}]scale=1080:1920:force_original_aspect_ratio=decrease [fg_scaled${i}];` +
-            // Compose
-            `[bg_blurred${i}][fg_scaled${i}]overlay=(W-w)/2:(H-h)/2 [composed${i}];` +
-            // SUPERSAMPLE & ZOOM
-            // 1. Scale up 2x
-            `[composed${i}]scale=2160:3840 [highres${i}];` +
-            // 2. Smooth Zoom on High Res
-            `[highres${i}]zoompan=z=zoom+0.0005:d=${framesPerImage}:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):s=1080x1920:fps=30,setsar=1 [v${i}]`
+          `[${i}:v]split=2 [bg${i}] [fg${i}];` +
+          `[bg${i}]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=20:10 [bg_blurred${i}];` +
+          `[fg${i}]scale=1080:1920:force_original_aspect_ratio=decrease [fg_scaled${i}];` +
+          `[bg_blurred${i}][fg_scaled${i}]overlay=(W-w)/2:(H-h)/2 [composed${i}];` +
+          `[composed${i}]scale=2160:3840 [highres${i}];` +
+          `[highres${i}]zoompan=z=zoom+0.0005:d=${framesPerImage}:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):s=1080x1920:fps=30,setsar=1 [v${i}]`
         );
         videoStreams.push(`[v${i}]`);
       });
 
-      // 2. Create End Card (Black Background + Text)
-      // Note: We escape the brandName to prevent FFmpeg syntax errors
+      // Create End Card
       const safeBrandName = brandName.replace(/:/g, '\\:').replace(/'/g, '');
-      
-      // Determine font file path based on OS (Basic fallback logic)
-      // If you are on Windows, we point to Arial. On Linux/Mac, we hope for default or use a generic approach.
       let fontPath = '';
       if (process.platform === 'win32') {
         fontPath = ':fontfile=C\\\\:/Windows/Fonts/arial.ttf';
-      } 
-      // If not windows, we omit fontfile and rely on FFmpeg default, or you can specify a path
+      }
       
       filterComplex.push(
         `color=c=black:s=1080x1920:d=${endCardDuration} [black_bg];` +
@@ -182,29 +224,97 @@ class FfmpegService {
       );
       videoStreams.push(`[end_card]`);
 
-      // 3. Concatenate Slideshow + End Card
+      // Concatenate video
       filterComplex.push(
         `${videoStreams.join('')}concat=n=${images.length + 1}:v=1:a=0 [base_video]`
       );
 
       let lastVideoNode = '[base_video]';
 
-      // 4. Overlay QR Code (Only on the slideshow part? Or whole video? Let's do whole video)
+      // Overlay QR Code
       if (qrPath) {
         const qrIndex = images.length;
         filterComplex.push(
-            `[${qrIndex}:v]scale=200:-1 [qr];` +
-            `[base_video][qr]overlay=main_w-overlay_w-50:50 [video_with_qr]`
+          `[${qrIndex}:v]scale=200:-1 [qr];` +
+          `[base_video][qr]overlay=main_w-overlay_w-50:50 [video_with_qr]`
         );
         lastVideoNode = '[video_with_qr]';
       }
 
-      // 5. Audio Handling
-      if (audioPath) {
-        const audioIndex = qrPath ? images.length + 1 : images.length;
-        // We use 'apad' to ensure audio stream doesn't cut short, 
-        // but we also rely on '-shortest' in output options combined with the calculated video length
-        filterComplex.push(`[${audioIndex}:a]volume=1.5,apad [final_audio]`);
+      // Calculate audio input indices
+      const audioInputStartIndex = images.length + (qrPath ? 1 : 0);
+      const bgMusicInputIndex = audioInputStartIndex + audioFiles.length;
+
+      const hasVoiceover = audioFiles.length > 0;
+      const hasBgMusic = bgMusicPath !== null;
+
+      // NEW: Sequential Voiceover Processing (NO trimming, NO gaps)
+      if (hasVoiceover) {
+        console.log(`   🎙️ Concatenating ${audioFiles.length} voiceovers sequentially...`);
+        
+        // Process each audio file: normalize volume and ensure no silence at start/end
+        audioFiles.forEach((_, i) => {
+          const audioInputIndex = audioInputStartIndex + i;
+          
+          // Trim silence from start/end, boost volume, ensure consistent format
+          filterComplex.push(
+            `[${audioInputIndex}:a]` +
+            `silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB,` + // Remove silence at start
+            `areverse,` + // Reverse to remove silence at end
+            `silenceremove=start_periods=1:start_silence=0.1:start_threshold=-50dB,` + // Remove silence (from end)
+            `areverse,` + // Reverse back
+            `volume=1.5,` + // Boost volume
+            `aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo` + // Normalize format
+            `[a${i}]`
+          );
+        });
+
+        // Concatenate ALL voiceovers with NO gaps
+        const voiceoverStreams = audioFiles.map((_, i) => `[a${i}]`).join('');
+        filterComplex.push(
+          `${voiceoverStreams}concat=n=${audioFiles.length}:v=0:a=1[voiceover_seamless]`
+        );
+
+        // Add silence for end card
+        filterComplex.push(
+          `anullsrc=channel_layout=stereo:sample_rate=44100:duration=${endCardDuration}[end_silence]`
+        );
+
+        // Concatenate voiceover + end card silence
+        filterComplex.push(
+          `[voiceover_seamless][end_silence]concat=n=2:v=0:a=1[voiceover_track]`
+        );
+      }
+
+      // Process Background Music
+      if (hasBgMusic) {
+        console.log(`   🎵 Adding background music with ducking...`);
+        
+        // Loop music to match video duration, reduce volume
+        filterComplex.push(
+          `[${bgMusicInputIndex}:a]aloop=loop=-1:size=2e+09,` +
+          `atrim=0:${totalVideoDuration},` +
+          `asetpts=PTS-STARTPTS,` +
+          `volume=0.15[bg_music_loop]`
+        );
+
+        if (hasVoiceover) {
+          // Mix voiceover with music, ducking music when voice plays
+          filterComplex.push(
+            `[bg_music_loop][voiceover_track]sidechaincompress=threshold=0.02:ratio=4:attack=200:release=1000[bg_music_ducked];` +
+            `[voiceover_track][bg_music_ducked]amix=inputs=2:duration=longest:weights=1.0 0.8[final_audio]`
+          );
+        } else {
+          // No voiceover, just use background music
+          filterComplex.push(
+            `[bg_music_loop]acopy[final_audio]`
+          );
+        }
+      } else if (hasVoiceover) {
+        // Voiceover only, no background music
+        filterComplex.push(
+          `[voiceover_track]acopy[final_audio]`
+        );
       }
 
       command.complexFilter(filterComplex);
@@ -216,34 +326,39 @@ class FfmpegService {
         '-pix_fmt', 'yuv420p',
         '-r', '30',
         '-b:v', '5000k',
-        // We do NOT use -shortest here because we want the video to fully play out the end card
-        // We set exact time instead
         `-t`, `${totalVideoDuration}`
       ];
 
-      if (audioPath) {
+      if (hasVoiceover || hasBgMusic) {
         outputOptions.push('-map', '[final_audio]');
         command
-            .audioCodec('aac')
-            .audioBitrate('192k')
-            .audioFrequency(44100)
-            .audioChannels(2);
+          .audioCodec('aac')
+          .audioBitrate('192k')
+          .audioFrequency(44100)
+          .audioChannels(2);
       }
 
       command.outputOptions(outputOptions);
 
       command
         .on('start', (cmdLine) => {
-            console.log('   ℹ️  FFmpeg Command constructed.');
+          console.log('   ℹ️ FFmpeg Command constructed.');
+        })
+        .on('progress', (progress) => {
+          if (progress.percent) {
+            process.stdout.write(`\r   ⏳ Rendering: ${Math.floor(progress.percent)}%`);
+          }
         })
         .on('end', () => {
-            console.log(`\n✅ Video Rendered Successfully!`);
-            console.log(`   📂 Location: ${outputPath}`);
-            resolve({ success: true, path: outputPath });
+          console.log(`\n✅ Video Rendered Successfully!`);
+          console.log(`   📂 Location: ${outputPath}`);
+          console.log(`   ⏱️ Final Duration: ${totalVideoDuration.toFixed(2)}s`);
+          console.log(`   🎤 Voiceover: ${totalAudioDuration.toFixed(2)}s (continuous)`);
+          resolve({ success: true, path: outputPath });
         })
         .on('error', (err) => {
-            console.error('❌ FFmpeg Error:', err.message);
-            reject(err);
+          console.error('❌ FFmpeg Error:', err.message);
+          reject(err);
         })
         .save(outputPath);
     });
@@ -259,12 +374,6 @@ class FfmpegService {
         return numA - numB;
       })
       .map(f => path.join(this.imagesDir, f));
-  }
-
-  getAudioPath() {
-    if (!fs.existsSync(this.audioDir)) return null;
-    const files = fs.readdirSync(this.audioDir).filter(f => f.endsWith('.mp3'));
-    return files.length > 0 ? path.join(this.audioDir, files[0]) : null;
   }
 
   getQrPath() {
