@@ -1,16 +1,27 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { Globe, Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Progress } from "@/components/ui/progress"
-import { cn } from "@/lib/utils"
-import type { URLAnalysis } from "@/lib/types"
-import { useAnalyzeUrl } from "@/hooks/useAnalyzeUrl"
-import { AnalysisLoader } from "./analysis-loader"
+import { useState } from "react";
+import {
+  Globe,
+  Loader2,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import type { AnalysisResponse } from "@/lib/api-types";
+import { useAnalyzeUrl } from "@/hooks/useAnalyzeUrl";
+import { AnalysisLoader } from "./analysis-loader";
 
 // type AnalysisStep = {
 //   id: string
@@ -19,14 +30,14 @@ import { AnalysisLoader } from "./analysis-loader"
 // }
 
 interface URLInputStepProps {
-  onComplete: (analysis: URLAnalysis) => void
+  onComplete: (analysis: AnalysisResponse) => void;
 }
 
 export function URLInputStep({ onComplete }: URLInputStepProps) {
-  const [url, setUrl] = useState("")
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [url, setUrl] = useState("");
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   // const [progress, setProgress] = useState(0)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null);
   // const [analysisSteps, setAnalysisSteps] = useState<AnalysisStep[]>([
   //   { id: "fetch", label: "Fetching page content", status: "pending" },
   //   { id: "extract", label: "Extracting images & text", status: "pending" },
@@ -38,23 +49,23 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
   //   setAnalysisSteps((prev) => prev.map((step) => (step.id === stepId ? { ...step, status } : step)))
   // }
 
-  const { runAnalyze } = useAnalyzeUrl()
+  const { runAnalyze } = useAnalyzeUrl();
 
   const analyzeURL = async () => {
     if (!url) {
-      setError("Please enter a URL")
-      return
+      setError("Please enter a URL");
+      return;
     }
 
     try {
-      new URL(url.startsWith("http") ? url : `https://${url}`)
+      new URL(url.startsWith("http") ? url : `https://${url}`);
     } catch {
-      setError("Please enter a valid URL")
-      return
+      setError("Please enter a valid URL");
+      return;
     }
 
-    setError(null)
-    setIsAnalyzing(true)
+    setError(null);
+    setIsAnalyzing(true);
     // setProgress(0)
 
     // const steps = ["fetch", "extract", "analyze", "generate"]
@@ -68,33 +79,32 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
     // }
     // call API analyze endpoint and map response to URLAnalysis
     try {
-      const res = await runAnalyze(url)
-      const mapped: URLAnalysis = {
+      const res = await runAnalyze(url);
+      const mapped: AnalysisResponse = {
         id: res.id,
         url: res.url,
-        title: res.title || '',
-        description: res.description || '',
-        pageType: (res.pageType as any) || 'product',
-        headlines: (res.headlines || []).map((h: any) => ({ text: h.text, included: !!h.included })),
-        valueProposition: res.valueProposition || '',
-        targetAudience: res.targetAudience || '',
-        images: (res.images || []).map((img: any) => ({ url: img.url, relevance: img.relevance || 'medium', selected: !!img.selected })),
-        brandColors: res.colors || [],
-        brandName: res.brandName || '',
-      }
-      setIsAnalyzing(false)
-      onComplete(mapped)
+        status: res.status,
+        extractedContent: res.extractedContent,
+        media: res.media,
+        branding: res.branding,
+      };
+      setIsAnalyzing(false);
+      onComplete(mapped);
     } catch (e: any) {
-      setIsAnalyzing(false)
-      setError(e?.message || 'Failed to analyze URL')
+      setIsAnalyzing(false);
+      setError(e?.message || "Failed to analyze URL");
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-semibold tracking-tight">Turn any webpage into a video ad</h2>
-        <p className="mt-1 text-muted-foreground">Enter your product page, landing page, or any URL to get started</p>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          Turn any webpage into a video ad
+        </h2>
+        <p className="mt-1 text-muted-foreground">
+          Enter your product page, landing page, or any URL to get started
+        </p>
       </div>
 
       <Card>
@@ -104,7 +114,8 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
             Enter Page URL
           </CardTitle>
           <CardDescription>
-            We'll analyze the page content and extract key information for your video ad
+            We'll analyze the page content and extract key information for your
+            video ad
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -116,13 +127,17 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
                 placeholder="https://example.com/product"
                 value={url}
                 onChange={(e) => {
-                  setUrl(e.target.value)
-                  setError(null)
+                  setUrl(e.target.value);
+                  setError(null);
                 }}
                 disabled={isAnalyzing}
                 className={cn(error && "border-destructive")}
               />
-              <Button onClick={analyzeURL} disabled={isAnalyzing || !url} className="gap-2 shrink-0">
+              <Button
+                onClick={analyzeURL}
+                disabled={isAnalyzing || !url}
+                className="gap-2 shrink-0"
+              >
                 {isAnalyzing ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -140,18 +155,22 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
           </div>
 
           <div className="rounded-lg bg-muted/50 p-3">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Try with example URLs:</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              Try with example URLs:
+            </p>
             <div className="flex flex-wrap gap-2">
-              {["shopify.com/products/demo", "amazon.com/dp/example", "etsy.com/listing/example"].map((example) => (
-                <button
-                  key={example}
-                  onClick={() => setUrl(`https://${example}`)}
-                  disabled={isAnalyzing}
-                  className="rounded-md bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                >
-                  {example}
-                </button>
-              ))}
+              {["buypass.ai", "amazon.com/dp/example", "example.com"].map(
+                (example) => (
+                  <button
+                    key={example}
+                    onClick={() => setUrl(`https://${example}`)}
+                    disabled={isAnalyzing}
+                    className="rounded-md bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  >
+                    {example}
+                  </button>
+                )
+              )}
             </div>
           </div>
         </CardContent>
@@ -189,5 +208,5 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
         </Card>
       )}
     </div>
-  )
+  );
 }

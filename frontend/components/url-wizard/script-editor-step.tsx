@@ -1,66 +1,91 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { ArrowLeft, ArrowRight, GripVertical, Plus, ImageIcon, Clock, Play } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
-import type { VideoScript, Scene } from "@/lib/types"
+import { useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  GripVertical,
+  Plus,
+  ImageIcon,
+  Clock,
+  Play,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import type { VideoScript, ScriptScene } from "@/lib/api-types";
+import type { Scene } from "@/lib/types";
 
 interface ScriptEditorStepProps {
-  script: VideoScript
-  onComplete: (script: VideoScript) => void
-  onBack: () => void
+  script: VideoScript;
+  onComplete: (script: VideoScript) => void;
+  onBack: () => void;
 }
 
-export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorStepProps) {
-  const [data, setData] = useState<VideoScript>(script)
-  const [selectedSceneId, setSelectedSceneId] = useState(script.scenes[0]?.id)
+export function ScriptEditorStep({
+  script,
+  onComplete,
+  onBack,
+}: ScriptEditorStepProps) {
+  const [data, setData] = useState<VideoScript>(script);
+  const [selectedSceneId, setSelectedSceneId] = useState<string>(
+    script.scenes[0]?.id ?? ""
+  );
 
-  const selectedScene = data.scenes.find((s) => s.id === selectedSceneId)
+  const selectedScene = data.scenes.find((s) => s.id === selectedSceneId);
 
   const updateScene = (sceneId: string, updates: Partial<Scene>) => {
     setData({
       ...data,
-      scenes: data.scenes.map((s) => (s.id === sceneId ? { ...s, ...updates } : s)),
-    })
-  }
+      scenes: data.scenes.map((s) =>
+        s.id === sceneId ? { ...s, ...updates } : s
+      ),
+    });
+  };
 
   const addScene = () => {
-    const newScene: Scene = {
+    const newScene: ScriptScene = {
       id: `scene-${Date.now()}`,
-      name: `Scene ${data.scenes.length + 1}`,
       duration: 5,
-      primaryText: "New Scene",
-      textStyle: "body",
+      text: "New Scene",
       voiceOver: "",
-      voiceOverPacing: "normal",
-      imageUrl: "/new-scene.jpg",
+      visuals: { type: "image", url: "", animation: "none" },
+      order: 1,
       transition: "fade",
-      animation: "none",
-    }
-    setData({ ...data, scenes: [...data.scenes, newScene] })
-    setSelectedSceneId(newScene.id)
-  }
+    };
+    setData({ ...data, scenes: [...data.scenes, newScene] });
+    setSelectedSceneId(newScene.id);
+  };
 
-  const getWordCount = (text: string) => text.trim().split(/\s+/).filter(Boolean).length
+  const getWordCount = (text: string) =>
+    text.trim().split(/\s+/).filter(Boolean).length;
   const getEstimatedTime = (text: string, pacing: Scene["voiceOverPacing"]) => {
-    const words = getWordCount(text)
-    const wpm = pacing === "slow" ? 120 : pacing === "fast" ? 180 : 150
-    return Math.ceil((words / wpm) * 60)
-  }
+    const words = getWordCount(text);
+    const wpm = pacing === "slow" ? 120 : pacing === "fast" ? 180 : 150;
+    return Math.ceil((words / wpm) * 60);
+  };
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-semibold tracking-tight">Edit Your Script</h2>
-        <p className="mt-1 text-muted-foreground">Customize scenes, text, and voice-over for each segment</p>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          Edit Your Script
+        </h2>
+        <p className="mt-1 text-muted-foreground">
+          Customize scenes, text, and voice-over for each segment
+        </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
@@ -82,22 +107,34 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                 onClick={() => setSelectedSceneId(scene.id)}
                 className={cn(
                   "flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors",
-                  selectedSceneId === scene.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                  selectedSceneId === scene.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/50"
                 )}
               >
                 <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="h-10 w-10 shrink-0 overflow-hidden rounded bg-muted">
-                  <img src={scene.imageUrl || "/placeholder.svg"} alt="" className="h-full w-full object-cover" />
+                  <img
+                    src={scene.visuals?.url || "/placeholder.svg"}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">
-                    {index + 1}. {scene.name}
+                    {index + 1}. {scene.id}
                   </p>
-                  <p className="text-xs text-muted-foreground">{scene.duration}s</p>
+                  <p className="text-xs text-muted-foreground">
+                    {scene.duration}s
+                  </p>
                 </div>
               </button>
             ))}
-            <Button variant="outline" className="w-full gap-2 bg-transparent" onClick={addScene}>
+            <Button
+              variant="outline"
+              className="w-full gap-2 bg-transparent"
+              onClick={addScene}
+            >
               <Plus className="h-4 w-4" />
               Add Scene
             </Button>
@@ -110,8 +147,10 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
             <CardHeader>
               <CardTitle className="text-base">
                 <Input
-                  value={selectedScene.name}
-                  onChange={(e) => updateScene(selectedScene.id, { name: e.target.value })}
+                  value={selectedScene.id ?? ""}
+                  onChange={(e) =>
+                    updateScene(selectedScene.id, { id: e.target.value })
+                  }
                   className="h-auto border-none p-0 text-base font-semibold shadow-none focus-visible:ring-0"
                 />
               </CardTitle>
@@ -134,8 +173,24 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                   <div className="space-y-2">
                     <Label>Primary Text</Label>
                     <Input
+                      value={selectedScene.text ?? ""}
+                      onChange={(e) =>
+                        updateScene(selectedScene.id, {
+                          primaryText: e.target.value,
+                        })
+                      }
+                      placeholder="Main headline text"
+                    />
+                  </div>
+                  {/* <div className="space-y-2">
+                    <Label>Primary Text</Label>
+                    <Input
                       value={selectedScene.primaryText}
-                      onChange={(e) => updateScene(selectedScene.id, { primaryText: e.target.value })}
+                      onChange={(e) =>
+                        updateScene(selectedScene.id, {
+                          primaryText: e.target.value,
+                        })
+                      }
                       placeholder="Main headline text"
                     />
                   </div>
@@ -143,7 +198,11 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                     <Label>Secondary Text (optional)</Label>
                     <Input
                       value={selectedScene.secondaryText || ""}
-                      onChange={(e) => updateScene(selectedScene.id, { secondaryText: e.target.value })}
+                      onChange={(e) =>
+                        updateScene(selectedScene.id, {
+                          secondaryText: e.target.value,
+                        })
+                      }
                       placeholder="Supporting text"
                     />
                   </div>
@@ -152,7 +211,9 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                     <Select
                       value={selectedScene.textStyle}
                       onValueChange={(value) =>
-                        updateScene(selectedScene.id, { textStyle: value as Scene["textStyle"] })
+                        updateScene(selectedScene.id, {
+                          textStyle: value as Scene["textStyle"],
+                        })
                       }
                     >
                       <SelectTrigger>
@@ -165,7 +226,7 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                         <SelectItem value="cta">Call to Action</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
+                  </div> */}
                 </TabsContent>
 
                 <TabsContent value="voiceover" className="space-y-4">
@@ -173,13 +234,22 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                     <div className="flex items-center justify-between">
                       <Label>Voice-Over Script</Label>
                       <span className="text-xs text-muted-foreground">
-                        {getWordCount(selectedScene.voiceOver)} words • ~
-                        {getEstimatedTime(selectedScene.voiceOver, selectedScene.voiceOverPacing)}s
+                        {getWordCount(selectedScene.voiceOver ?? "")} words • ~
+                        {getEstimatedTime(
+                          selectedScene.voiceOver ?? "",
+                          // selectedScene.voiceOverPacing ?? "normal"
+                          "normal"
+                        )}
+                        s
                       </span>
                     </div>
                     <Textarea
-                      value={selectedScene.voiceOver}
-                      onChange={(e) => updateScene(selectedScene.id, { voiceOver: e.target.value })}
+                      value={selectedScene.voiceOver ?? ""}
+                      onChange={(e) =>
+                        updateScene(selectedScene.id, {
+                          voiceOver: e.target.value,
+                        })
+                      }
                       placeholder="Enter voice-over script for this scene..."
                       rows={4}
                     />
@@ -190,9 +260,16 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                       {(["slow", "normal", "fast"] as const).map((pacing) => (
                         <Button
                           key={pacing}
-                          variant={selectedScene.voiceOverPacing === pacing ? "default" : "outline"}
+                          variant={
+                            // (selectedScene.voiceOverPacing ?? "normal") ===
+                            "normal" === pacing ? "default" : "outline"
+                          }
                           size="sm"
-                          onClick={() => updateScene(selectedScene.id, { voiceOverPacing: pacing })}
+                          onClick={() =>
+                            updateScene(selectedScene.id, {
+                              voiceOverPacing: pacing,
+                            })
+                          }
                           className="flex-1 capitalize"
                         >
                           {pacing}
@@ -200,7 +277,11 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                       ))}
                     </div>
                   </div>
-                  <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 bg-transparent"
+                  >
                     <Play className="h-4 w-4" />
                     Preview Voice-Over
                   </Button>
@@ -212,17 +293,23 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                     <div className="flex gap-4">
                       <div className="h-32 w-32 shrink-0 overflow-hidden rounded-lg border bg-muted">
                         <img
-                          src={selectedScene.imageUrl || "/placeholder.svg"}
+                          src={selectedScene.visuals?.url ?? "/placeholder.svg"}
                           alt=""
                           className="h-full w-full object-cover"
                         />
                       </div>
                       <div className="flex flex-col justify-center gap-2">
-                        <Button variant="outline" size="sm" className="gap-2 bg-transparent">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2 bg-transparent"
+                        >
                           <ImageIcon className="h-4 w-4" />
                           Change Image
                         </Button>
-                        <p className="text-xs text-muted-foreground">Select from assets or upload new</p>
+                        <p className="text-xs text-muted-foreground">
+                          Select from assets or upload new
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -230,9 +317,11 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                     <div className="space-y-2">
                       <Label>Transition</Label>
                       <Select
-                        value={selectedScene.transition}
+                        value={selectedScene.transition ?? "cut"}
                         onValueChange={(value) =>
-                          updateScene(selectedScene.id, { transition: value as Scene["transition"] })
+                          updateScene(selectedScene.id, {
+                            transition: value as Scene["transition"],
+                          })
                         }
                       >
                         <SelectTrigger>
@@ -249,9 +338,12 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                     <div className="space-y-2">
                       <Label>Animation</Label>
                       <Select
-                        value={selectedScene.animation}
+                        // value={selectedScene.animation ?? "none"}
+                        value={"none"}
                         onValueChange={(value) =>
-                          updateScene(selectedScene.id, { animation: value as Scene["animation"] })
+                          updateScene(selectedScene.id, {
+                            animation: value as Scene["animation"],
+                          })
                         }
                       >
                         <SelectTrigger>
@@ -272,12 +364,18 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
                       <Input
                         type="number"
                         value={selectedScene.duration}
-                        onChange={(e) => updateScene(selectedScene.id, { duration: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateScene(selectedScene.id, {
+                            duration: Number(e.target.value),
+                          })
+                        }
                         className="w-20"
                         min={1}
                         max={30}
                       />
-                      <span className="text-sm text-muted-foreground">seconds</span>
+                      <span className="text-sm text-muted-foreground">
+                        seconds
+                      </span>
                     </div>
                   </div>
                 </TabsContent>
@@ -288,7 +386,11 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
       </div>
 
       <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack} className="gap-2 bg-transparent">
+        <Button
+          variant="outline"
+          onClick={onBack}
+          className="gap-2 bg-transparent"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </Button>
@@ -298,5 +400,5 @@ export function ScriptEditorStep({ script, onComplete, onBack }: ScriptEditorSte
         </Button>
       </div>
     </div>
-  )
+  );
 }

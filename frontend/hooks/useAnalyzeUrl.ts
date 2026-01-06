@@ -1,6 +1,14 @@
-import { useCallback, useState } from 'react';
-import { analyzeUrl, generateScript, getSuggestions } from '../lib/services/analysis';
-import type { AnalysisResponse, GenerateScriptResponse, SuggestionsResponse } from '../lib/api-types';
+import { useCallback, useState } from "react";
+import {
+  analyzeUrl,
+  generateScript,
+  getSuggestions,
+} from "../lib/services/analysis";
+import type {
+  AnalysisResponse,
+  VideoScriptResponse as GenerateScriptResponse,
+  SuggestionsResponse,
+} from "../lib/api-types";
 
 export function useAnalyzeUrl() {
   const [loading, setLoading] = useState(false);
@@ -22,18 +30,24 @@ export function useAnalyzeUrl() {
     }
   }, []);
 
-  const runGenerateScript = useCallback(async (analysisId: string, config: Record<string, any>) => {
-    setLoading(true);
-    try {
-      const res: GenerateScriptResponse = await generateScript(analysisId, config);
-      return res;
-    } catch (e: any) {
-      setError(e);
-      throw e;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const runGenerateScript = useCallback(
+    async (analysisId: string, config: Record<string, any>) => {
+      setLoading(true);
+      try {
+        const res: GenerateScriptResponse = await generateScript(
+          analysisId,
+          config
+        );
+        return res;
+      } catch (e: any) {
+        setError(e);
+        throw e;
+      } finally {
+        setLoading(false);
+      }
+    },
+    []
+  );
 
   const runSuggestions = useCallback(async (scriptId: string) => {
     setLoading(true);
@@ -48,5 +62,12 @@ export function useAnalyzeUrl() {
     }
   }, []);
 
-  return { loading, error, analysis, runAnalyze, runGenerateScript, runSuggestions } as const;
+  return {
+    loading,
+    error,
+    analysis,
+    runAnalyze,
+    runGenerateScript,
+    runSuggestions,
+  } as const;
 }
