@@ -59,7 +59,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <div className="px-2 pb-3">
               <Button asChild className="w-full gap-2">
-                <Link href="/create">
+                <Link href="/create/from-url">
                   <PlusCircle className="h-4 w-4" />
                   Create New Ad
                 </Link>
