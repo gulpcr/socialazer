@@ -1,63 +1,120 @@
-"use client"
+"use client";
 
-import { useState } from "react"
-import { ArrowLeft, ArrowRight, Play, Pause, RefreshCw, Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Label } from "@/components/ui/label"
-import { Slider } from "@/components/ui/slider"
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
-import type { VideoScript, VoicePreset } from "@/lib/types"
+import { useState, useEffect } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Play,
+  Pause,
+  RefreshCw,
+  Loader2,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/components/ui/card";
+import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import type {
+  VideoScript,
+  VoicePreset,
+  VoiceOver,
+  VoiceOverResponse,
+} from "@/lib/api-types";
+import { useVoiceOver } from "@/hooks/useVoiceOver";
 
 interface VoiceOverStepProps {
-  script: VideoScript
-  onComplete: (voice: VoicePreset, audioUrl: string) => void
-  onBack: () => void
+  script: VideoScript;
+  onComplete: (voice: VoicePreset, audioUrl: string) => void;
+  onBack: () => void;
 }
 
-const voices: VoicePreset[] = [
-  { id: "v1", name: "Sarah", gender: "female", language: "English (US)", provider: "elevenlabs" },
-  { id: "v2", name: "Michael", gender: "male", language: "English (US)", provider: "elevenlabs" },
-  { id: "v3", name: "Emma", gender: "female", language: "English (UK)", provider: "elevenlabs" },
-  { id: "v4", name: "James", gender: "male", language: "English (UK)", provider: "google" },
-  { id: "v5", name: "Sofia", gender: "female", language: "Spanish", provider: "google" },
-  { id: "v6", name: "Alex", gender: "neutral", language: "English (US)", provider: "google" },
-]
+export function VoiceOverStep({
+  script,
+  onComplete,
+  onBack,
+}: VoiceOverStepProps) {
+  useEffect(() => {
+    loadVoicePresets();
+  }, []);
 
-export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps) {
-  const [provider, setProvider] = useState<"elevenlabs" | "google">("elevenlabs")
-  const [selectedVoice, setSelectedVoice] = useState<VoicePreset | null>(null)
-  const [stability, setStability] = useState([75])
-  const [similarity, setSimilarity] = useState([75])
-  const [isGenerating, setIsGenerating] = useState(false)
-  const [isGenerated, setIsGenerated] = useState(false)
-  const [isPlaying, setIsPlaying] = useState(false)
+  const { loading, error, getVoiceOverPresets, voiceOverGeneration } =
+    useVoiceOver();
 
-  const filteredVoices = voices.filter((v) => v.provider === provider)
+  const loadVoicePresets = async () => {
+    try {
+      const res = await getVoiceOverPresets();
+      setVoices(res.presets);
+    } catch (e) {
+      console.error("Failed to load voice presets", e);
+    }
+  };
 
-  const fullScript = script.scenes.map((s) => s.voiceOver).join(" ")
+  const [voices, setVoices] = useState<VoicePreset[]>([]);
+  const [provider, setProvider] = useState<"elevenlabs" | "google">(
+    "elevenlabs"
+  );
+  const [selectedVoice, setSelectedVoice] = useState<VoicePreset | null>(null);
+  const [settings, setSettings] = useState<Record<string, number>>({
+    speed: 1.0,
+    pitch: 1.0,
+    stability: 0.75,
+    clarity: 0.85,
+  });
+
+  const [voiceover, setVoiceOver] = useState<VoiceOver | null>(null);
+  const [generatedResponse, setGeneratedResponse] =
+    useState<VoiceOverResponse | null>(null);
+  // const [isGenerating, setIsGenerating] = useState(false);
+  const [isGenerated, setIsGenerated] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  const filteredVoices = voices.filter((v) => v.provider === provider);
+
+  const fullScript = script.scenes.map((s) => s.voiceOver).join(" ");
 
   const generateVoiceOver = async () => {
-    if (!selectedVoice) return
-    setIsGenerating(true)
-    // Simulate generation
-    await new Promise((resolve) => setTimeout(resolve, 2000))
-    setIsGenerating(false)
-    setIsGenerated(true)
-  }
+    if (!selectedVoice) return;
+    const payload: VoiceOver = {
+      text: fullScript,
+      voiceId: selectedVoice.id,
+      provider,
+      settings,
+    };
+    setVoiceOver(payload);
+    try {
+      const res = await voiceOverGeneration(payload);
+      setGeneratedResponse(res as VoiceOverResponse);
+      setIsGenerated(true);
+    } catch (e) {
+      console.error("Voice over generation failed", e);
+    }
+  };
 
   const handleUseVoice = () => {
     if (selectedVoice) {
-      onComplete(selectedVoice, "/mock-audio.mp3")
+      onComplete(
+        selectedVoice,
+        generatedResponse?.audioUrl ?? "/mock-audio.mp3"
+      );
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
       <div className="text-center">
-        <h2 className="text-2xl font-semibold tracking-tight">Generate Voice-Over</h2>
-        <p className="mt-1 text-muted-foreground">Select a voice and generate audio for your video</p>
+        <h2 className="text-2xl font-semibold tracking-tight">
+          Generate Voice-Over
+        </h2>
+        <p className="mt-1 text-muted-foreground">
+          Select a voice and generate audio for your video
+        </p>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -65,7 +122,10 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Select Voice</CardTitle>
-            <Tabs value={provider} onValueChange={(v) => setProvider(v as typeof provider)}>
+            <Tabs
+              value={provider}
+              onValueChange={(v) => setProvider(v as typeof provider)}
+            >
               <TabsList className="w-full">
                 <TabsTrigger value="elevenlabs" className="flex-1">
                   ElevenLabs
@@ -77,13 +137,23 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
             </Tabs>
           </CardHeader>
           <CardContent className="space-y-3">
+            {loading && (
+              <div className="p-6 text-center">
+                <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Loading voices…
+                </p>
+              </div>
+            )}
             {filteredVoices.map((voice) => (
               <button
                 key={voice.id}
                 onClick={() => setSelectedVoice(voice)}
                 className={cn(
                   "flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors",
-                  selectedVoice?.id === voice.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/50",
+                  selectedVoice?.id === voice.id
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:bg-muted/50"
                 )}
               >
                 <div>
@@ -112,17 +182,71 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
               <CardContent className="space-y-6">
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Stability</Label>
-                    <span className="text-sm text-muted-foreground">{stability[0]}%</span>
+                    <Label>Speed</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {settings.speed.toFixed(2)}x
+                    </span>
                   </div>
-                  <Slider value={stability} onValueChange={setStability} max={100} step={1} />
+                  <Slider
+                    value={[settings.speed]}
+                    onValueChange={(value) =>
+                      setSettings({ ...settings, speed: Number(value[0]) })
+                    }
+                    min={0.5}
+                    max={2.0}
+                    step={0.01}
+                  />
                 </div>
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <Label>Similarity</Label>
-                    <span className="text-sm text-muted-foreground">{similarity[0]}%</span>
+                    <Label>Pitch</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {settings.pitch.toFixed(2)}x
+                    </span>
                   </div>
-                  <Slider value={similarity} onValueChange={setSimilarity} max={100} step={1} />
+                  <Slider
+                    value={[settings.pitch]}
+                    onValueChange={(value) =>
+                      setSettings({ ...settings, pitch: Number(value[0]) })
+                    }
+                    min={0.5}
+                    max={2.0}
+                    step={0.01}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Stability</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {Math.round(settings.stability * 100)}%
+                    </span>
+                  </div>
+                  <Slider
+                    value={[settings.stability]}
+                    onValueChange={(value) =>
+                      setSettings({ ...settings, stability: Number(value[0]) })
+                    }
+                    min={0}
+                    max={1}
+                    step={0.01}
+                  />
+                </div>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Clarity</Label>
+                    <span className="text-sm text-muted-foreground">
+                      {Math.round(settings.clarity * 100)}%
+                    </span>
+                  </div>
+                  <Slider
+                    value={[settings.clarity]}
+                    onValueChange={(value) =>
+                      setSettings({ ...settings, clarity: Number(value[0]) })
+                    }
+                    min={0}
+                    max={1}
+                    step={0.01}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -133,9 +257,12 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
               <CardTitle className="text-lg">Full Script Preview</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="max-h-32 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">{fullScript}</div>
+              <div className="max-h-32 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm">
+                {fullScript}
+              </div>
               <p className="mt-2 text-xs text-muted-foreground">
-                {fullScript.split(/\s+/).length} words • ~{Math.ceil((fullScript.split(/\s+/).length / 150) * 60)}s
+                {fullScript.split(/\s+/).length} words • ~
+                {Math.ceil((fullScript.split(/\s+/).length / 150) * 60)}s
                 duration
               </p>
             </CardContent>
@@ -145,11 +272,11 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
             <CardContent className="pt-6">
               <Button
                 onClick={generateVoiceOver}
-                disabled={!selectedVoice || isGenerating}
+                disabled={!selectedVoice || loading}
                 className="w-full gap-2"
                 size="lg"
               >
-                {isGenerating ? (
+                {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Generating Voice-Over...
@@ -168,7 +295,11 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
                       className="h-10 w-10 shrink-0 rounded-full p-0 bg-transparent"
                       onClick={() => setIsPlaying(!isPlaying)}
                     >
-                      {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+                      {isPlaying ? (
+                        <Pause className="h-4 w-4" />
+                      ) : (
+                        <Play className="h-4 w-4" />
+                      )}
                     </Button>
                     <div className="flex-1">
                       <div className="h-8 rounded bg-muted">
@@ -184,7 +315,15 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
                         </div>
                       </div>
                     </div>
-                    <span className="text-sm text-muted-foreground">0:32</span>
+                    <span className="text-sm text-muted-foreground">
+                      {generatedResponse
+                        ? `${Math.floor(generatedResponse.duration / 60)}:${(
+                            generatedResponse.duration % 60
+                          )
+                            .toString()
+                            .padStart(2, "0")}`
+                        : "0:32"}
+                    </span>
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -207,15 +346,23 @@ export function VoiceOverStep({ script, onComplete, onBack }: VoiceOverStepProps
       </div>
 
       <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack} className="gap-2 bg-transparent">
+        <Button
+          variant="outline"
+          onClick={onBack}
+          className="gap-2 bg-transparent"
+        >
           <ArrowLeft className="h-4 w-4" />
           Back
         </Button>
-        <Button onClick={handleUseVoice} disabled={!isGenerated} className="gap-2">
+        <Button
+          onClick={handleUseVoice}
+          disabled={!isGenerated}
+          className="gap-2"
+        >
           Continue
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
     </div>
-  )
+  );
 }

@@ -95,3 +95,35 @@ export interface SuggestionsResponse {
   message: string;
   data: ScriptSuggestions;
 }
+
+export interface VoiceOver {
+  text: string;
+  voiceId: string;
+  provider: string;
+  settings: Record<string, any>;
+}
+
+export interface VoicePreset {
+  id: string;
+  name: string;
+  gender: "male" | "female" | "neutral";
+  language: string;
+  provider: "elevenlabs" | "google";
+  previewUrl?: string;
+}
+
+export interface VoicePresetsResponse {
+  success: boolean;
+  message: string;
+  data: {
+    presets: VoicePreset[];
+  };
+}
+
+export interface VoiceOverResponse {
+  id: string;
+  audioUrl: string;
+  duration: number;
+  format?: string;
+  sampleRate?: number;
+}

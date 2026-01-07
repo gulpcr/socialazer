@@ -159,18 +159,16 @@ export function URLInputStep({ onComplete }: URLInputStepProps) {
               Try with example URLs:
             </p>
             <div className="flex flex-wrap gap-2">
-              {["buypass.ai", "amazon.com/dp/example", "example.com"].map(
-                (example) => (
-                  <button
-                    key={example}
-                    onClick={() => setUrl(`https://${example}`)}
-                    disabled={isAnalyzing}
-                    className="rounded-md bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-                  >
-                    {example}
-                  </button>
-                )
-              )}
+              {["buypass.ai", "buyshop.ai", "example.com"].map((example) => (
+                <button
+                  key={example}
+                  onClick={() => setUrl(`https://${example}`)}
+                  disabled={isAnalyzing}
+                  className="rounded-md bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                >
+                  {example}
+                </button>
+              ))}
             </div>
           </div>
         </CardContent>
