@@ -79,9 +79,19 @@ export interface Suggestion {
   description?: string;
   sceneId?: string;
   autoApplicable?: boolean;
+  specificChange?: string[];
+}
+
+export interface ScriptSuggestions {
+  scriptId: string;
+  overallAssessment: string;
+  generatedAt: string;
+  suggestions: Suggestion[];
+  qualityScores?: Record<string, number>;
 }
 
 export interface SuggestionsResponse {
-  suggestions: Suggestion[];
-  qualityScores?: Record<string, number>;
+  success: boolean;
+  message: string;
+  data: ScriptSuggestions;
 }

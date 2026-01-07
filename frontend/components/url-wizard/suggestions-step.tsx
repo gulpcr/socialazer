@@ -61,11 +61,16 @@ export function SuggestionsStep({
   useEffect(() => {
     loadSuggestions();
   }, []);
+
   const loadSuggestions = async () => {
     try {
       const res = await runSuggestions(scriptId);
-      setSuggestions(res.suggestions || []);
-      const quality = res.qualityScores ?? {};
+      console.log("Suggestions response:", res);
+
+      const mapped_res = res.data;
+      console.log("Mapped Suggestions response:", mapped_res);
+      setSuggestions(mapped_res.suggestions || []);
+      const quality = mapped_res.qualityScores ?? {};
       setScores({
         engagement: Math.round((quality.engagement as number) || 0),
         clarity: Math.round((quality.clarity as number) || 0),
