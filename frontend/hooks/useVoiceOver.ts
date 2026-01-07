@@ -12,11 +12,12 @@ import type {
 import { VoicePreset } from "@/lib/types";
 
 export function useVoiceOver() {
+  const [generating, setGenerating] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
   const voiceOverGeneration = useCallback(async (voice: VoiceOverRequest) => {
-    setLoading(true);
+    setGenerating(true);
     setError(null);
     try {
       const res = await generateVoiceOver(
@@ -31,7 +32,7 @@ export function useVoiceOver() {
       setError(e);
       throw e;
     } finally {
-      setLoading(false);
+      setGenerating(false);
     }
   }, []);
 
@@ -51,6 +52,7 @@ export function useVoiceOver() {
 
   return {
     loading,
+    generating,
     error,
     voiceOverGeneration,
     getVoiceOverPresets,

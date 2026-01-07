@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { CDN_BASE } from "@/lib/api-client";
 import {
   ArrowLeft,
   ArrowRight,
@@ -45,7 +46,7 @@ export function VoiceOverStep({
     loadVoicePresets();
   }, []);
 
-  const { loading, error, getVoiceOverPresets, voiceOverGeneration } =
+  const { loading, generating, error, getVoiceOverPresets, voiceOverGeneration } =
     useVoiceOver();
 
   const loadVoicePresets = async () => {
@@ -75,6 +76,10 @@ export function VoiceOverStep({
   );
   const [isGenerated, setIsGenerated] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [waveform, setWaveform] = useState<number[] | null>(null);
+  const [progress, setProgress] = useState(0);
 
   const filteredVoices = voices.filter((v) => v.provider === provider);
 
@@ -96,6 +101,120 @@ export function VoiceOverStep({
     } catch (e) {
       console.error("Voice over generation failed", e);
     }
+  };
+
+  // When a new generatedResponse arrives, create an Audio element and load waveform
+  useEffect(() => {
+    console.log("New generated response:", generatedResponse);
+    if (!generatedResponse?.audioUrl) return;
+
+    let cancelled = false;
+
+    // resolve audio URL against CDN_BASE if it's relative
+    const resolvedUrl =
+      generatedResponse.audioUrl.startsWith("http") ||
+      generatedResponse.audioUrl.startsWith("//")
+        ? generatedResponse.audioUrl
+        : `${CDN_BASE.replace(/\/$/, "")}${generatedResponse.audioUrl.startsWith("/") ? "" : "/"}${generatedResponse.audioUrl}`;
+
+    // create audio element
+    const audio = new Audio(resolvedUrl);
+    audioRef.current = audio;
+    audio.onended = () => setIsPlaying(false);
+
+    // decode audio to get waveform data
+    const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
+    fetch(resolvedUrl)
+      .then((r) => r.arrayBuffer())
+      .then((buf) => ac.decodeAudioData(buf))
+      .then((audioBuffer) => {
+        if (cancelled) return;
+        const channelData = audioBuffer.getChannelData(0);
+        const samples = 120; // number of bars
+        const blockSize = Math.floor(channelData.length / samples) || 1;
+        const data = new Array(samples).fill(0).map((_, i) => {
+          let sum = 0;
+          const start = i * blockSize;
+          const end = Math.min(start + blockSize, channelData.length);
+          for (let j = start; j < end; j++) sum += Math.abs(channelData[j]);
+          return sum / (end - start || 1);
+        });
+        setWaveform(data);
+      })
+      .catch((e) => console.error("Failed to decode audio for waveform", e));
+
+    return () => {
+      cancelled = true;
+      audio.pause();
+      audioRef.current = null;
+      try {
+        ac.close();
+      } catch {}
+    };
+  }, [generatedResponse]);
+
+  // Control audio play/pause
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.play().catch((e) => console.error(e));
+    } else {
+      audio.pause();
+    }
+  }, [isPlaying]);
+
+  // Track progress while playing
+  useEffect(() => {
+    let raf: number | null = null;
+    const step = () => {
+      const audio = audioRef.current;
+      if (audio && generatedResponse) {
+        const dur = audio.duration || generatedResponse.duration || 1;
+        setProgress(Math.min(1, (audio.currentTime || 0) / dur));
+      }
+      raf = requestAnimationFrame(step);
+    };
+    if (isPlaying) raf = requestAnimationFrame(step);
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [isPlaying, generatedResponse]);
+
+  // Draw waveform to canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !waveform) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const playedBars = Math.floor(progress * waveform.length);
+    const barWidth = canvas.width / waveform.length;
+    const bgColor = getComputedStyle(document.documentElement).getPropertyValue("--muted-foreground") || "#94A3B8";
+    const primary = "#0EA5A4"; // fallback primary color
+
+    for (let i = 0; i < waveform.length; i++) {
+      const h = waveform[i] * canvas.height * 0.9;
+      const x = i * barWidth;
+      ctx.fillStyle = i <= playedBars ? primary : "rgba(148,163,184,0.5)";
+      ctx.fillRect(x + barWidth * 0.1, (canvas.height - h) / 2, barWidth * 0.8, h);
+    }
+  }, [waveform, progress]);
+
+  const handleWaveformClick = (e: React.MouseEvent) => {
+    if (!canvasRef.current || !audioRef.current || !generatedResponse) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const frac = Math.max(0, Math.min(1, x / rect.width));
+    const dur = audioRef.current.duration || generatedResponse.duration || 1;
+    audioRef.current.currentTime = frac * dur;
+    setProgress(frac);
+    setIsPlaying(true);
   };
 
   const handleUseVoice = () => {
@@ -160,9 +279,11 @@ export function VoiceOverStep({
                     {voice.gender} • {voice.language}
                   </p>
                 </div>
-                <Button size="sm" variant="ghost" className="gap-1">
-                  <Play className="h-3 w-3" />
-                  Preview
+                <Button asChild size="sm" variant="ghost" className="gap-1">
+                  <span>
+                    <Play className="h-3 w-3" />
+                    Preview
+                  </span>
                 </Button>
               </button>
             ))}
@@ -270,11 +391,11 @@ export function VoiceOverStep({
             <CardContent className="pt-6">
               <Button
                 onClick={generateVoiceOver}
-                disabled={!selectedVoice || loading}
+                disabled={!selectedVoice || generating}
                 className="w-full gap-2"
                 size="lg"
               >
-                {loading ? (
+                {generating ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     Generating Voice-Over...
@@ -300,18 +421,19 @@ export function VoiceOverStep({
                       )}
                     </Button>
                     <div className="flex-1">
-                      <div className="h-8 rounded bg-muted">
-                        {/* Waveform visualization placeholder */}
-                        <div className="flex h-full items-center justify-center gap-0.5 px-2">
-                          {Array.from({ length: 40 }).map((_, i) => (
-                            <div
-                              key={i}
-                              className="w-1 rounded-full bg-primary/60"
-                              style={{ height: `${Math.random() * 100}%` }}
+                        <div className="h-8 rounded bg-muted">
+                          {waveform ? (
+                            <canvas
+                              ref={canvasRef}
+                              className="w-full h-full"
+                              onClick={handleWaveformClick}
                             />
-                          ))}
+                          ) : (
+                            <div className="flex h-full items-center justify-center gap-0.5 px-2">
+                              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                            </div>
+                          )}
                         </div>
-                      </div>
                     </div>
                     <span className="text-sm text-muted-foreground">
                       {generatedResponse
