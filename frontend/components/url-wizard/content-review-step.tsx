@@ -218,6 +218,7 @@ export function ContentReviewStep({
                   src={image.url || "/placeholder.svg"}
                   alt={`Extracted ${index + 1}`}
                   className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
                 />
                 <Badge
                   className={cn(
