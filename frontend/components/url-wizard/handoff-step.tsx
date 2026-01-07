@@ -143,7 +143,7 @@ export function HandoffStep({
             Generating Reel...
           </Button>
         ) : (
-          <Button asChild size="lg" onClick={handleGenerateReel}>
+          <Button size="lg" onClick={handleGenerateReel}>
             {/* <Link href="/editor/new">Generate Reel</Link> */}
             Generate Reel
           </Button>

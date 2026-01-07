@@ -80,6 +80,7 @@ export function VoiceOverStep({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [waveform, setWaveform] = useState<number[] | null>(null);
   const [progress, setProgress] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
 
   const filteredVoices = voices.filter((v) => v.provider === provider);
 
@@ -171,7 +172,9 @@ export function VoiceOverStep({
       const audio = audioRef.current;
       if (audio && generatedResponse) {
         const dur = audio.duration || generatedResponse.duration || 1;
-        setProgress(Math.min(1, (audio.currentTime || 0) / dur));
+        const cur = audio.currentTime || 0;
+        setProgress(Math.min(1, cur / dur));
+        setCurrentTime(cur);
       }
       raf = requestAnimationFrame(step);
     };
@@ -205,6 +208,16 @@ export function VoiceOverStep({
       ctx.fillRect(x + barWidth * 0.1, (canvas.height - h) / 2, barWidth * 0.8, h);
     }
   }, [waveform, progress]);
+
+  const formatHMS = (seconds?: number) => {
+    const total = Math.floor(seconds || 0);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s
+      .toString()
+      .padStart(2, "0")}`;
+  };
 
   const handleWaveformClick = (e: React.MouseEvent) => {
     if (!canvasRef.current || !audioRef.current || !generatedResponse) return;
@@ -407,17 +420,17 @@ export function VoiceOverStep({
 
               {isGenerated && (
                 <div className="mt-4 space-y-3">
-                  <div className="flex items-center gap-3 rounded-lg border p-3">
+                  <div className="flex items-center gap-2 rounded-lg border p-3">
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-10 w-10 shrink-0 rounded-full p-0 bg-transparent"
+                      className="h-8 w-8 shrink-0 rounded-full p-0 bg-transparent"
                       onClick={() => setIsPlaying(!isPlaying)}
                     >
                       {isPlaying ? (
-                        <Pause className="h-4 w-4" />
+                        <Pause className="h-3 w-3" />
                       ) : (
-                        <Play className="h-4 w-4" />
+                        <Play className="h-3 w-3" />
                       )}
                     </Button>
                     <div className="flex-1">
@@ -436,13 +449,13 @@ export function VoiceOverStep({
                         </div>
                     </div>
                     <span className="text-sm text-muted-foreground">
-                      {generatedResponse
-                        ? `${Math.floor(generatedResponse.duration / 60)}:${(
-                            generatedResponse.duration % 60
-                          )
-                            .toString()
-                            .padStart(2, "0")}`
-                        : "0:32"}
+                      {generatedResponse ? (
+                        `${formatHMS(currentTime)} / ${formatHMS(
+                          audioRef.current?.duration || generatedResponse.duration
+                        )}`
+                      ) : (
+                        "00:00:00 / 00:00:32"
+                      )}
                     </span>
                   </div>
                   <div className="flex gap-2">
