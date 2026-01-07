@@ -10,6 +10,8 @@ class ScriptService {
   constructor() {
     this.scrapedCsvPath = path.join(__dirname, '../../src/scraped.csv');
     this.scriptCsvPath = path.join(__dirname, '../../src/script.csv');
+    // Added config path
+    this.configCsvPath = path.join(__dirname, '../../src/config.csv'); 
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     this.elevenlabsVoiceId = process.env.ELEVENLABS_VOICE_ID;
   }
@@ -43,9 +45,48 @@ class ScriptService {
   }
 
   /**
+   * Helper to convert aspect ratio string to resolution dimensions
+   */
+  getResolutionFromAspectRatio(ratio) {
+    const resolutions = {
+      '9:16': { width: 1080, height: 1920 },
+      '16:9': { width: 1920, height: 1080 },
+      '1:1':  { width: 1080, height: 1080 },
+      '4:5':  { width: 1080, height: 1350 }
+    };
+    // Default to 9:16 (1080x1920) if unknown
+    return resolutions[ratio] || { width: 1080, height: 1920 };
+  }
+
+  /**
+   * Saves the generation configuration to config.csv
+   */
+  async saveConfigToCsv(config) {
+    try {
+      const resolution = this.getResolutionFromAspectRatio(config.aspectRatio);
+      
+      const configData = [{
+        channel: config.platform,
+        duration: config.duration,
+        adType: 'sales', // Defaulting to sales as per requirement, or could map from tone
+        width: resolution.width,
+        height: resolution.height,
+        voiceover: true,
+        updatedAt: new Date().toISOString()
+      }];
+
+      const csv = Papa.unparse(configData);
+      await fs.writeFile(this.configCsvPath, csv, 'utf-8');
+      console.log('💾 Config saved to src/config.csv');
+    } catch (error) {
+      console.error('Failed to save config:', error);
+      // We log but don't throw here to ensure script generation continues even if config save fails
+    }
+  }
+
+  /**
    * SMART SCRIPT GENERATION WITH IMAGE-AWARE MATCHING
-   * This version uses the detailed image analysis to ensure
-   * script content matches the actual images
+   * GRACEFUL FALLBACK: If no images, generates text-only script structure.
    */
   async generateScriptWithGPT(scrapedData, config) {
     try {
@@ -58,12 +99,13 @@ class ScriptService {
       const keyPoints = scrapedData.extractedContent?.keyPoints || [];
       const headlines = scrapedData.extractedContent?.headlines || [];
 
-      // Get available images WITH their detailed analysis
+      // Get available images
       const availableImages = scrapedData.media?.images || [];
       const selectedImages = availableImages.filter(img => img.selected !== false && img.url);
+      const hasImages = selectedImages.length > 0;
 
-      if (selectedImages.length === 0) {
-        throw new Error("No valid images found in scraped data.");
+      if (!hasImages) {
+        console.warn("⚠️ No valid images found. Generating script with placeholders.");
       }
 
       // Calculate scene parameters
@@ -78,72 +120,41 @@ class ScriptService {
       console.log(`📊 Duration: ${targetDuration}s = ${scenesTotalDuration}s scenes + ${endCardDuration}s end card`);
       console.log(`🎬 Generating ${numScenes} scenes x ${sceneDuration}s each`);
 
-      /**
-       * CRITICAL: Build detailed image descriptions for the AI
-       * This is what ensures script matches images
-       */
-      const imageDescriptions = selectedImages.map((img, idx) => {
-        // Use ALL the detailed fields from scraper analysis
-        const productType = img.productType || 'Product';
-        const productCategory = img.productCategory || 'general';
-        const visualContent = img.visualContent || img.alt || 'Product image';
-        const keyFeatures = img.keyFeatures?.join(', ') || '';
-        const mood = img.mood || 'professional';
-        const suggestedNarration = img.suggestedNarration || '';
-        const bestUsedFor = img.bestUsedFor || 'feature';
+      let imageDescriptions = [];
+      let uniqueProducts = [];
+      let uniqueCategories = [];
 
-        return {
-          index: idx,
-          productType,
-          productCategory,
-          visualContent,
-          keyFeatures,
-          mood,
-          suggestedNarration,
-          bestUsedFor,
-          url: img.url
-        };
-      });
+      if (hasImages) {
+        /**
+         * Build detailed image descriptions for the AI
+         */
+        imageDescriptions = selectedImages.map((img, idx) => {
+          return {
+            index: idx,
+            productType: img.productType || 'Product',
+            productCategory: img.productCategory || 'general',
+            visualContent: img.visualContent || img.alt || 'Product image',
+            keyFeatures: img.keyFeatures?.join(', ') || '',
+            mood: img.mood || 'professional',
+            suggestedNarration: img.suggestedNarration || '',
+            bestUsedFor: img.bestUsedFor || 'feature',
+            url: img.url
+          };
+        });
 
-      // Group images by category for smarter matching
-      const imagesByCategory = {
-        hook: imageDescriptions.filter(i => i.bestUsedFor === 'hook'),
-        feature: imageDescriptions.filter(i => i.bestUsedFor === 'feature'),
-        detail: imageDescriptions.filter(i => i.bestUsedFor === 'detail'),
-        lifestyle: imageDescriptions.filter(i => i.bestUsedFor === 'lifestyle'),
-        cta: imageDescriptions.filter(i => i.bestUsedFor === 'cta')
-      };
-
-      // Get unique product types for the AI to focus on
-      const uniqueProducts = [...new Set(imageDescriptions.map(i => i.productType).filter(p => p !== 'Product' && p !== 'Unknown product'))];
-      const uniqueCategories = [...new Set(imageDescriptions.map(i => i.productCategory).filter(c => c !== 'general'))];
+        uniqueProducts = [...new Set(imageDescriptions.map(i => i.productType).filter(p => p !== 'Product' && p !== 'Unknown product'))];
+        uniqueCategories = [...new Set(imageDescriptions.map(i => i.productCategory).filter(c => c !== 'general'))];
+      } else {
+        // Fallback for no images
+        uniqueProducts = [scrapedData.extractedContent?.pageType || 'Brand Product'];
+        uniqueCategories = ['General'];
+      }
 
       console.log(`📸 Available images: ${selectedImages.length}`);
-      console.log(`🏷️ Products detected: ${uniqueProducts.join(', ') || 'Various products'}`);
-      console.log(`📁 Categories: ${uniqueCategories.join(', ') || 'General'}`);
 
-      const systemPrompt = `You are an expert video scriptwriter for ${platform}.
-
-CRITICAL RULE: The script MUST match the actual images available. Each scene's voiceOver MUST describe what's shown in the assigned image.
-
-BRAND CONTEXT:
-- Brand: ${brandName}
-- Description: ${description}
-- Value Proposition: ${valueProposition}
-- Target Audience: ${targetAudience}
-- Tone: ${tone}
-
-PRODUCTS SHOWN IN IMAGES:
-${uniqueProducts.length > 0 ? uniqueProducts.map(p => `• ${p}`).join('\n') : '• Various brand products'}
-
-CATEGORIES:
-${uniqueCategories.length > 0 ? uniqueCategories.map(c => `• ${c}`).join('\n') : '• General products'}
-
-KEY POINTS:
-${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
-
-═══════════════════════════════════════════════════════════
-AVAILABLE IMAGES (YOU MUST USE THESE - MATCH CONTENT TO IMAGE):
+      // Dynamic System Prompt based on image availability
+      const matchingInstructions = hasImages 
+        ? `AVAILABLE IMAGES (YOU MUST USE THESE - MATCH CONTENT TO IMAGE):
 ═══════════════════════════════════════════════════════════
 ${imageDescriptions.map(img => `
 [IMAGE ${img.index}]
@@ -153,9 +164,35 @@ ${imageDescriptions.map(img => `
 • Features: ${img.keyFeatures || 'N/A'}
 • Mood: ${img.mood}
 • Best for: ${img.bestUsedFor}
-• Suggested narration: ${img.suggestedNarration || 'N/A'}
 `).join('\n')}
 ═══════════════════════════════════════════════════════════
+
+MATCHING RULES:
+1. Scene 1 (Hook): Use an image with bestUsedFor="hook" or hero image.
+2. Match voiceOver to the assigned image content.
+3. NEVER write about a product not shown in the assigned image.`
+        
+        : `NO IMAGES DETECTED:
+- Generate a script based purely on the text/brand data.
+- Leave 'imageIndex' as -1.
+- Focus on general brand benefits and value proposition.`;
+
+      const systemPrompt = `You are an expert video scriptwriter for ${platform}.
+
+BRAND CONTEXT:
+- Brand: ${brandName}
+- Description: ${description}
+- Value Proposition: ${valueProposition}
+- Target Audience: ${targetAudience}
+- Tone: ${tone}
+
+PRODUCTS/CONTEXT:
+${uniqueProducts.length > 0 ? uniqueProducts.map(p => `• ${p}`).join('\n') : '• General Brand Services'}
+
+KEY POINTS:
+${keyPoints.map((p, i) => `${i + 1}. ${p}`).join('\n')}
+
+${matchingInstructions}
 
 REQUIREMENTS:
 - Generate exactly ${numScenes} scenes
@@ -163,18 +200,6 @@ REQUIREMENTS:
 - Each voiceOver: ~${targetWordsPerScene} words
 - Platform: ${platform}
 - Aspect Ratio: ${aspectRatio}
-
-MATCHING RULES (VERY IMPORTANT):
-1. Scene 1 (Hook): Use an image with bestUsedFor="hook" OR a hero/product image. Write about THAT specific product.
-2. Middle scenes: Match the voiceOver to what's ACTUALLY in the image. If image shows earbuds, talk about earbuds - NOT laptops.
-3. Final scene (CTA): Use any strong product image. Write a call-to-action relevant to that product.
-4. NEVER write about a product that isn't shown in the assigned image.
-5. Each scene's voiceOver should describe features/benefits of the SPECIFIC product in that scene's image.
-
-SCENE STRUCTURE:
-- Scene 1: Hook - Grab attention with the product shown in the first image
-- Scenes 2-${numScenes - 1}: Features - Each scene talks about the product in ITS assigned image
-- Scene ${numScenes}: CTA - Call to action for the brand
 
 OUTPUT FORMAT (JSON only):
 {
@@ -185,19 +210,13 @@ OUTPUT FORMAT (JSON only):
       "primary_text": "Short headline (max 5 words)",
       "secondary_text": "Supporting text (max 8 words)",
       "text_style": "bold",
-      "voiceOver": "Narration that describes the product in IMAGE 0. Must be ~${targetWordsPerScene} words and specifically about what's shown in the image.",
-      "imageIndex": 0,
+      "voiceOver": "Narration text.",
+      "imageIndex": ${hasImages ? 0 : -1},
       "animation": "zoom-in",
       "transition": "fade"
     }
   ]
-}
-
-REMEMBER: 
-- Look at each image's "Product" and "Shows" fields
-- Write voiceOver that matches THAT SPECIFIC image
-- If image shows "MacBook Pro with silver finish", talk about MacBook Pro - not iPhone
-- If image shows "wireless earbuds in charging case", talk about earbuds - not laptop`;
+}`;
 
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o',
@@ -214,31 +233,42 @@ REMEMBER:
 
       const scenes = (jsonScript.scenes || []).map((scene, idx) => {
         let imageIndex = scene.imageIndex;
+        let selectedImage = null;
 
-        // Validate imageIndex
-        if (typeof imageIndex !== 'number' || imageIndex < 0 || imageIndex >= selectedImages.length || usedImageIndices.has(imageIndex)) {
-          // Find an appropriate unused image based on scene position
-          if (idx === 0) {
-            // Hook - find hero/hook image
-            const hookImg = imageDescriptions.find(i => !usedImageIndices.has(i.index) && (i.bestUsedFor === 'hook' || i.mood === 'premium'));
-            imageIndex = hookImg?.index ?? 0;
-          } else if (idx === jsonScript.scenes.length - 1) {
-            // CTA - find lifestyle or product image
-            const ctaImg = imageDescriptions.find(i => !usedImageIndices.has(i.index) && (i.bestUsedFor === 'cta' || i.bestUsedFor === 'lifestyle'));
-            imageIndex = ctaImg?.index ?? (idx % selectedImages.length);
-          } else {
-            // Feature - find unused feature image
-            const featureImg = imageDescriptions.find(i => !usedImageIndices.has(i.index));
-            imageIndex = featureImg?.index ?? (idx % selectedImages.length);
+        if (hasImages) {
+          // Validate imageIndex if images exist
+          if (typeof imageIndex !== 'number' || imageIndex < 0 || imageIndex >= selectedImages.length || usedImageIndices.has(imageIndex)) {
+            // Find appropriate unused image
+            if (idx === 0) {
+              const hookImg = imageDescriptions.find(i => !usedImageIndices.has(i.index) && (i.bestUsedFor === 'hook' || i.mood === 'premium'));
+              imageIndex = hookImg?.index ?? 0;
+            } else if (idx === jsonScript.scenes.length - 1) {
+              const ctaImg = imageDescriptions.find(i => !usedImageIndices.has(i.index) && (i.bestUsedFor === 'cta' || i.bestUsedFor === 'lifestyle'));
+              imageIndex = ctaImg?.index ?? (idx % selectedImages.length);
+            } else {
+              const featureImg = imageDescriptions.find(i => !usedImageIndices.has(i.index));
+              imageIndex = featureImg?.index ?? (idx % selectedImages.length);
+            }
           }
+          usedImageIndices.add(imageIndex);
+          selectedImage = selectedImages[imageIndex];
+        } else {
+          // No images exist - create fallback placeholder
+          imageIndex = -1;
+          selectedImage = {
+            url: '', // Empty URL indicates no image
+            productType: 'Generic',
+            productCategory: 'General'
+          };
         }
 
-        usedImageIndices.add(imageIndex);
-        const selectedImage = selectedImages[imageIndex];
-
-        // Log matching for debugging
+        // Log for debugging
         const wordCount = (scene.voiceOver || '').trim().split(/\s+/).length;
-        console.log(`   Scene ${idx + 1}: Image ${imageIndex} (${selectedImage.productType || selectedImage.productCategory || 'product'}) | ${wordCount} words`);
+        if (hasImages && selectedImage) {
+           console.log(`   Scene ${idx + 1}: Image ${imageIndex} (${selectedImage.productType}) | ${wordCount} words`);
+        } else {
+           console.log(`   Scene ${idx + 1}: No Image (Placeholder) | ${wordCount} words`);
+        }
 
         return {
           id: `scene_${idx + 1}`,
@@ -250,9 +280,8 @@ REMEMBER:
           voiceOver: scene.voiceOver || '',
           visuals: {
             type: 'image',
-            url: selectedImage.url,
+            url: selectedImage.url || '', // Graceful fallback
             animation: scene.animation || 'fade-in',
-            // Include image metadata for reference
             productType: selectedImage.productType,
             productCategory: selectedImage.productCategory
           },
@@ -385,6 +414,9 @@ REMEMBER:
 
   async processAndGenerateScript(analysisId, config) {
     try {
+      // Step 0: Save Configuration to CSV immediately
+      await this.saveConfigToCsv(config);
+
       console.log('📖 Reading scraped data...');
       const scrapedData = await this.readScrapedData();
 

@@ -1,0 +1,15 @@
+Create a video for "Auton8".
+STYLE: sales style for youtube. High-end production value.
+RESOLUTION: 1080x1920 (Vertical 9:16 Aspect Ratio).
+BRANDING: Colors: Clean, Corporate, Professional. Vibe: AI-driven automation that makes complex change simple..
+CAMERA: Cinematic, steady gimbal shots, 24fps.
+
+--- VISUAL NARRATIVE SEQUENCE ---
+[Scene 1] (3s): Show Corporate Background. Product showcase. Mood: Professional. Lighting: Volumetric and premium. (Context: "Experience AI-driven automation with Auton8....")
+[Scene 2] (3s): Show Corporate Values Display. Product showcase. Mood: Professional. Lighting: Volumetric and premium. (Context: "Guided by our vision and values....")
+[Scene 3] (3s): Show Global Presence Map. Product showcase. Mood: Professional. Lighting: Volumetric and premium. (Context: "Join our global enterprise network....")
+
+REQUIREMENTS:
+- NO generated text overlays.
+- Seamless transitions between scenes.
+- Photorealistic quality.

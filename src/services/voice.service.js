@@ -1,7 +1,30 @@
+// src/services/voice.service.js
+const ffmpeg = require('fluent-ffmpeg');
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
+
+let ffmpegPath = 'ffmpeg';
+let ffprobePath = 'ffprobe';
+
+try {
+  ffmpegPath = require('ffmpeg-static');
+  console.log('✅ Using ffmpeg-static');
+} catch (e) {
+  console.log('ℹ️ Using system ffmpeg');
+}
+
+try {
+  ffprobePath = require('ffprobe-static').path;
+  console.log('✅ Using ffprobe-static');
+} catch (e) {
+  console.log('ℹ️ Using system ffprobe');
+}
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+ffmpeg.setFfprobePath(ffprobePath);
+
 
 class VoiceService {
   constructor() {
@@ -18,28 +41,25 @@ class VoiceService {
    * Cleans the directory first (POC mode).
    * @param {Object} scriptData - The JSON object from script.service
    */
+
   async generateVoiceover(scriptData) {
     try {
-      console.log('🗣️ Starting Scene-by-Scene Voiceover Generation...');
+      console.log('🗣️ Starting Voiceover Generation & Merge...');
 
-      // 1. Validation
       if (!this.apiKey || !this.voiceId) {
-        console.warn('⚠️ Missing ElevenLabs API Key or Voice ID in .env. Skipping voiceover.');
+        console.warn('⚠️ Missing ElevenLabs API Key or Voice ID.');
         return null;
       }
 
-      // 2. Clean Slate: Remove existing directory and recreate
+      // 1. Clean Slate
       if (fs.existsSync(this.audioDir)) {
         fs.rmSync(this.audioDir, { recursive: true, force: true });
       }
       fs.mkdirSync(this.audioDir, { recursive: true });
 
-      // 3. Extract voiceover text from script (handle both formats)
+      // 2. Extract Scenes
       let scenesWithVoiceover = [];
-
-      // NEW FORMAT: scenes array
       if (scriptData.scenes && Array.isArray(scriptData.scenes)) {
-        console.log('   📝 Processing NEW script format (scenes)...');
         scenesWithVoiceover = scriptData.scenes
           .map((scene, index) => ({
             index,
@@ -47,10 +67,7 @@ class VoiceService {
             duration: scene.duration || 5
           }))
           .filter(scene => scene.text.length > 0);
-      }
-      // OLD FORMAT: elements array
-      else if (scriptData.elements && Array.isArray(scriptData.elements)) {
-        console.log('   📝 Processing OLD script format (elements)...');
+      } else if (scriptData.elements && Array.isArray(scriptData.elements)) {
         scenesWithVoiceover = scriptData.elements
           .filter(el => el.type === 'audio' || el.type === 'voiceover')
           .map((el, index) => ({
@@ -59,31 +76,23 @@ class VoiceService {
             duration: el.duration || 5
           }))
           .filter(scene => scene.text.length > 0);
-      }
-      else {
-        throw new Error('Invalid script data: No scenes or elements found.');
-      }
-
-      if (scenesWithVoiceover.length === 0) {
-        console.log('ℹ️ No voiceover elements found in script. Skipping.');
+      } else {
+        console.warn('⚠️ No scenes found in script data.');
         return null;
       }
 
-      console.log(`   🎤 Generating ${scenesWithVoiceover.length} separate voiceover files...`);
+      if (scenesWithVoiceover.length === 0) return null;
 
-      // 4. Generate voiceover for EACH scene separately
+      // 3. Generate Individual Files
       const generatedFiles = [];
+      console.log(`   🎤 Generating ${scenesWithVoiceover.length} audio clips...`);
 
       for (let i = 0; i < scenesWithVoiceover.length; i++) {
         const scene = scenesWithVoiceover[i];
-        const sceneNum = scene.index + 1;
-        const filename = `scene_${sceneNum}.mp3`;
+        const filename = `scene_${scene.index + 1}.mp3`;
         const outputPath = path.join(this.audioDir, filename);
 
-        console.log(`   🎙️  Scene ${sceneNum}: "${scene.text.substring(0, 40)}..."`);
-
         try {
-          // Call ElevenLabs API for this scene
           const response = await axios({
             method: 'post',
             url: `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}`,
@@ -95,63 +104,55 @@ class VoiceService {
             data: {
               text: scene.text,
               model_id: "eleven_multilingual_v2",
-              voice_settings: {
-                stability: 0.5,
-                similarity_boost: 0.75
-              }
+              voice_settings: { stability: 0.5, similarity_boost: 0.75 }
             },
-            responseType: 'stream',
-            timeout: 30000 // 30 second timeout
+            responseType: 'stream'
           });
 
-          // Save to file
           await new Promise((resolve, reject) => {
             const writer = fs.createWriteStream(outputPath);
             response.data.pipe(writer);
-
-            writer.on('finish', () => {
-              console.log(`      ✅ Saved: ${filename}`);
-              generatedFiles.push({
-                sceneIndex: scene.index,
-                filename,
-                path: outputPath,
-                text: scene.text,
-                duration: scene.duration
-              });
-              resolve();
-            });
-
+            writer.on('finish', resolve);
             writer.on('error', reject);
           });
 
-          // Small delay between API calls to avoid rate limiting
-          if (i < scenesWithVoiceover.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 500));
-          }
+          generatedFiles.push(outputPath);
+          // Small delay to be polite to the API
+          await new Promise(r => setTimeout(r, 250));
 
         } catch (error) {
-          console.error(`      ❌ Failed to generate voiceover for scene ${sceneNum}:`, error.message);
-          // Continue with other scenes even if one fails
+          console.error(`      ❌ Failed scene ${scene.index + 1}:`, error.message);
         }
       }
 
-      if (generatedFiles.length === 0) {
-        console.error('❌ No voiceover files were generated successfully');
-        return null;
-      }
+      if (generatedFiles.length === 0) return null;
 
-      console.log(`✅ Generated ${generatedFiles.length} voiceover files successfully`);
+      // 4. Merge into a single file using FFmpeg
+      console.log('   🔗 Merging audio files into single track...');
+      const mergedOutputPath = path.join(this.audioDir, 'full_voiceover.mp3');
+
+      await new Promise((resolve, reject) => {
+        // 'ffmpeg' is used here, ensuring the import above is active
+        const command = ffmpeg(); 
+        generatedFiles.forEach(file => command.input(file));
+        
+        command
+          .on('error', (err) => reject(new Error(`Merge failed: ${err.message}`)))
+          .on('end', () => {
+            console.log('   ✅ Audio merge complete.');
+            resolve();
+          })
+          .mergeToFile(mergedOutputPath, this.audioDir);
+      });
 
       return {
         success: true,
-        audioDir: this.audioDir,
-        files: generatedFiles,
-        totalFiles: generatedFiles.length
+        singleAudioPath: mergedOutputPath,
+        files: generatedFiles
       };
 
     } catch (error) {
-      console.error('❌ Voiceover Generation Failed:', error.response?.data || error.message);
-      // We don't throw here, we return null so the video can still be made without voice
+      console.error('❌ Voiceover Generation Failed:', error.message);
       return null;
     }
   }

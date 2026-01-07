@@ -1,0 +1,15 @@
+{
+  "id": "video_695e6cf9965c81908d6d6c934759691e05d0d137f7cec261",
+  "status": "completed",
+  "created_at": 1767795961,
+  "prompt": "Create a video for \"Auton8\".\nSTYLE: sales style for youtube. High-end production value.\nRESOLUTION: 1080x1920 (Vertical 9:16 Aspect Ratio).\nBRANDING: Colors: Clean, Corporate, Professional. Vibe: AI-driven automation that makes complex change simple..\nCAMERA: Cinematic, steady gimbal shots, 24fps.\n\n--- VISUAL NARRATIVE SEQUENCE ---\n[Scene 1] (3s): Show Corporate Background. Product showcase. Mood: Professional. Lighting: Volumetric and premium. (Context: \"Experience AI-driven automation with Auton8....\")\n[Scene 2] (3s): Show Corporate Values Display. Product showcase. Mood: Professional. Lighting: Volumetric and premium. (Context: \"Guided by our vision and values....\")\n[Scene 3] (3s): Show Global Presence Map. Product showcase. Mood: Professional. Lighting: Volumetric and premium. (Context: \"Join our global enterprise network....\")\n\nREQUIREMENTS:\n- NO generated text overlays.\n- Seamless transitions between scenes.\n- Photorealistic quality.",
+  "config": {
+    "channel": "youtube",
+    "duration": "15",
+    "adType": "sales",
+    "width": "1080",
+    "height": "1920",
+    "voiceover": "true",
+    "updatedAt": "2026-01-07T14:20:51.710Z"
+  }
+}

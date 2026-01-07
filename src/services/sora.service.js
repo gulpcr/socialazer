@@ -1,154 +1,187 @@
-const fs = require('fs');
+// src/services/sora.service.js
+
+const fs = require('fs').promises;
+const fsSync = require('fs'); 
 const path = require('path');
-const OpenAI = require("openai");
-const https = require('https');
-const scriptService = require('./script.service');
-const configService = require('./config.service');
+const OpenAI = require('openai');
+const Papa = require('papaparse');
 
 class SoraService {
   constructor() {
     this.openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    this.outputDir = path.resolve(process.cwd(), 'outputs'); // Folder for saved videos
     
+    // Define Paths
+    this.scrapedCsvPath = path.join(__dirname, '../../src/scraped.csv');
+    this.scriptCsvPath = path.join(__dirname, '../../src/script.csv');
+    this.configCsvPath = path.join(__dirname, '../../src/config.csv');
+    this.outputDir = path.resolve(process.cwd(), 'outputs');
+
     // Ensure output directory exists
-    if (!fs.existsSync(this.outputDir)) {
-      fs.mkdirSync(this.outputDir, { recursive: true });
+    if (!fsSync.existsSync(this.outputDir)) {
+      fsSync.mkdirSync(this.outputDir, { recursive: true });
     }
   }
 
-  /**
-   * 1. PREPARE: Fetches Script + Config + Scraped Data
-   * 2. PROMPT: Constructs a cinematic prompt
-   * 3. GENERATE: Calls Sora (with optional Start Image)
-   */
-  async generateReel() {
+  async _readCsv(filePath, type = 'json_column', columnName = null) {
     try {
-      // --- 1. GET DATA ---
-      const [scriptData, config, scrapedData] = await Promise.all([
-        scriptService.getCurrentScript(),
-        configService.getConfig(),
-        scriptService.readScrapedData()
+      const csvContent = await fs.readFile(filePath, 'utf-8');
+      return new Promise((resolve, reject) => {
+        Papa.parse(csvContent, {
+          header: true,
+          skipEmptyLines: true,
+          complete: (results) => {
+            if (results.data.length > 0) {
+              const lastRow = results.data[results.data.length - 1];
+              if (type === 'json_column' && columnName) {
+                try {
+                  const jsonData = JSON.parse(lastRow[columnName]);
+                  resolve(jsonData);
+                } catch (parseError) {
+                  reject(new Error(`Failed to parse JSON in ${columnName}`));
+                }
+              } else {
+                resolve(lastRow);
+              }
+            } else {
+              reject(new Error(`No data found in ${path.basename(filePath)}`));
+            }
+          },
+          error: (err) => reject(err)
+        });
+      });
+    } catch (error) {
+      throw new Error(`File error: ${error.message}`);
+    }
+  }
+
+  mapResolution(width, height) {
+    const w = parseInt(width);
+    const h = parseInt(height);
+    const ratio = w / h;
+    if (ratio < 1) {
+      if (w <= 720) return '720x1280';
+      return '1024x1792';
+    } else {
+      if (h <= 720) return '1280x720';
+      return '1792x1024';
+    }
+  }
+
+  constructElaborativePrompt(scriptData, scrapedData, configData) {
+    const width = configData.width || 1080;
+    const height = configData.height || 1920;
+    const channel = configData.channel || 'social media';
+    const duration = configData.duration || '10';
+    
+    const brandName = scrapedData.branding?.brandName || "The Brand";
+    const colors = scrapedData.branding?.colors?.join(', ') || "Professional";
+    const valueProp = scrapedData.extractedContent?.valueProposition || "";
+
+    let prompt = `Create a video for "${brandName}".\n`;
+    prompt += `STYLE: ${channel} commercial. High-end production.\n`;
+    prompt += `BRANDING: Colors: ${colors}. Vibe: ${valueProp}.\n`;
+    prompt += `Video duration msut be : ${duration}.`;
+    prompt += `CAMERA: Cinematic, steady gimbal shots, 24fps.\n\n`;
+    prompt += `--- VISUAL NARRATIVE SEQUENCE ---\n`;
+
+    scriptData.scenes.forEach((scene, index) => {
+      const visuals = scene.visuals || {};
+      const action = visuals.visualContent || "Product showcase";
+      const mood = visuals.mood || "Professional";
+      const productType = visuals.productType || "The Product";
+      // We rely on visual descriptions for the video generation
+      prompt += `[Scene ${index + 1}]: Show ${productType}. ${action}. Mood: ${mood}. Lighting: Volumetric.\n`;
+    });
+
+    prompt += `\nREQUIREMENTS:\n`;
+    prompt += `- NO generated text overlays.\n`;
+    prompt += `- Seamless transitions between scenes.\n`;
+    prompt += `- Photorealistic quality.`;
+
+    return prompt;
+  }
+
+  // 1. START GENERATION
+  async createReel() {
+    try {
+      console.log('🔄 SORA SERVICE: Preparing Data...');
+
+      const [scrapedData, scriptData, configData] = await Promise.all([
+        this._readCsv(this.scrapedCsvPath, 'json_column', 'data'),
+        this._readCsv(this.scriptCsvPath, 'json_column', 'script'),
+        this._readCsv(this.configCsvPath, 'flat')
       ]);
 
-      if (!scriptData || !scriptData.script) {
-        throw new Error("No script found. Please generate a script first.");
-      }
-
-      // --- 2. SELECT START IMAGE (Brand Consistency) ---
-      // We look for a 'hero' or 'logo' image to ground the video style
-      let startImageUrl = null;
-      const validImages = scrapedData.adReadyImages || [];
-      const heroImage = validImages.find(img => img.context === 'hero' || img.context === 'product');
+      const supportedSize = this.mapResolution(configData.width, configData.height);
+      const soraPrompt = this.constructElaborativePrompt(scriptData, scrapedData, configData);
       
-      if (heroImage) {
-        startImageUrl = heroImage.url;
-        console.log(`🎨 Using start image for brand consistency: ${startImageUrl}`);
-      }
+      console.log('🚀 Sending request to Sora-2-pro...');
 
-      // --- 3. CONSTRUCT PROMPT ---
-      const soraPrompt = this.constructSoraPrompt(scriptData.script, scrapedData, config);
-      console.log("🎬 Sending Prompt to Sora:", soraPrompt);
-
-      // --- 4. CALL SORA API ---
-      // Note: Model name changes frequently. Ensure you have access to the specific model.
-      const videoParams = {
-        model: 'sora-2-pro', // or 'dall-e-3' if testing images, specific video model needed here
+      const video = await this.openai.videos.create({
+        model: 'sora-2-pro', // Using specific model requested
         prompt: soraPrompt,
-        size: this.formatDimensions(config.dimensions),
-        quality: "standard",
-        response_format: "url"
-      };
+        size: supportedSize 
+      });
 
-      // Inject image if available and supported by the specific model version
-      if (startImageUrl) {
-        // Note: Check specific OpenAI API docs for 'image' or 'input_image' parameter support
-        // videoParams.image = startImageUrl; 
-      }
-
-      const video = await this.openai.videos.create(videoParams);
+      console.log('✨ Video generation started. ID:', video.id);
 
       return {
         success: true,
-        videoId: video.id, // Sora usually returns an ID to poll
-        status: 'processing',
-        message: 'Video generation started. Poll status to get final URL.'
+        videoId: video.id,
+        status: video.status || 'processing'
       };
 
     } catch (error) {
-      console.error("Sora Generation Error:", error);
-      throw new Error(`Failed to generate Sora video: ${error.message}`);
+      console.error("❌ Sora Create Error:", error);
+      throw error;
     }
   }
 
-  /**
-   * Polls the OpenAI API until the video is ready
-   */
-  async checkStatusAndDownload(videoId) {
-    let video = await this.openai.videos.retrieve(videoId);
-
-    // Poll logic usually handled by controller, but here is the helper
-    if (video.status === 'completed') {
-      const fileName = `sora_${videoId}.mp4`;
-      const filePath = path.join(this.outputDir, fileName);
+  // 2. CHECK STATUS & DOWNLOAD (Specific Implementation)
+  async downloadVideoIfReady(videoId) {
+    try {
+      const video = await this.openai.videos.retrieve(videoId);
       
-      // Download to local file system
-      await this.downloadFile(video.url, filePath);
+      if (video.status === 'failed') {
+          throw new Error('Sora video generation marked as failed by OpenAI.');
+      }
+      
+      if (video.status === 'in_progress' || video.status === 'queued' || video.status === 'processing') {
+          return { status: 'processing', progress: video.progress || 0 };
+      }
+      
+      if (video.status === 'completed' || video.status === 'succeeded') {
+          console.log('📥 Status Completed. Downloading video content...');
+          
+          // Using the specific download method requested
+          const content = await this.openai.videos.downloadContent(videoId);
+          console.log(videoId);
+          const body = await content.arrayBuffer();
+          const buffer = Buffer.from(body);
+          
+          const fileName = `sora_${videoId}.mp4`;
+          const filePath = path.join(this.outputDir, fileName);
+          
+          await fs.writeFile(filePath, buffer);
+          console.log(`✅ Video successfully downloaded to: ${filePath}`);
 
-      return {
-        status: 'completed',
-        publicUrl: video.url, // The OpenAI hosted URL (temporary)
-        localPath: filePath
-      };
+          return { 
+              status: 'completed', 
+              localPath: filePath 
+          };
+      }
+
+      return { status: video.status };
+
+    } catch (error) {
+      console.error('Error in downloadVideoIfReady:', error.message);
+      throw error;
     }
-
-    return { status: video.status };
-  }
-
-  /**
-   * Helper: Converts Script JSON into a descriptive narrative for Sora
-   */
-  constructSoraPrompt(scriptJson, scrapedData, config) {
-    const brandName = scrapedData.brandName;
-    const tone = scrapedData.emotionalTone || "cinematic";
-    
-    // Extract visual descriptions from script elements
-    const visualSequence = scriptJson.elements
-      .filter(el => el.type === 'image' || el.type === 'video')
-      .map((el, i) => `Scene ${i+1}: A ${tone} shot. ${el.text || 'Showcasing the product/brand aesthetics.'}`)
-      .join(" ");
-
-    return `
-    Create a high-definition promotional video for the brand "${brandName}".
-    Style: ${tone}, Professional Advertisement, ${config.channel} style.
-    Dimensions: ${config.dimensions.width}x${config.dimensions.height}.
-    
-    Visual Narrative:
-    ${visualSequence}
-    
-    Ensure smooth transitions between scenes. High fidelity, photorealistic lighting.
-    NO TEXT OVERLAYS. (Text will be added in post-production).
-    `;
-  }
-
-  formatDimensions(dim) {
-    // OpenAI usually expects strings like "1080x1920"
-    if (!dim) return "1080x1920";
-    return `${dim.width}x${dim.height}`;
-  }
-
-  async downloadFile(url, dest) {
-    return new Promise((resolve, reject) => {
-      const file = fs.createWriteStream(dest);
-      https.get(url, (response) => {
-        response.pipe(file);
-        file.on('finish', () => {
-          file.close(resolve);
-        });
-      }).on('error', (err) => {
-        fs.unlink(dest, () => reject(err));
-      });
-    });
   }
 }
 
-module.exports = new SoraService();
+const serviceInstance = new SoraService();
+module.exports = {
+  createReel: serviceInstance.createReel.bind(serviceInstance),
+  downloadVideoIfReady: serviceInstance.downloadVideoIfReady.bind(serviceInstance)
+};
