@@ -11,12 +11,14 @@ export async function generateVoiceOver(
   provider: string,
   settings?: Record<string, any>
 ): Promise<VoiceOverResponse> {
-  return api.post<VoiceOverResponse>("/voice-over/generate", {
+  const res = await api.post<VoiceOverResponse>("/voice-over/generate", {
     text,
     voiceId,
     provider,
     settings,
   });
+  console.log("Voice Over API response:", res);
+  return res;
 }
 
 export async function getVoicePresets(): Promise<{

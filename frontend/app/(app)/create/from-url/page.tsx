@@ -16,6 +16,8 @@ import {
   VideoConfig,
   VideoScript,
   Suggestion,
+  VoiceOver,
+  VoiceOverResponse,
 } from "@/lib/api-types";
 import { useAnalyzeUrl } from "@/hooks/useAnalyzeUrl";
 
@@ -84,8 +86,6 @@ export default function CreateFromURLPage() {
     setCurrentStep(4);
   };
 
-  const { runSuggestions } = useAnalyzeUrl();
-
   const handleScriptEdited = async (data: VideoScript) => {
     setScript(data);
     setCurrentStep(5);
@@ -95,9 +95,9 @@ export default function CreateFromURLPage() {
     setCurrentStep(6);
   };
 
-  const handleVoiceGenerated = (voice: VoicePreset, audioUrl: string) => {
+  const handleVoiceGenerated = (voice: VoicePreset, voiceRes: VoiceOver) => {
     setSelectedVoice(voice);
-    setGeneratedAudioUrl(audioUrl);
+    setGeneratedAudioUrl(voiceRes.audioUrl);
     setCurrentStep(7);
   };
 

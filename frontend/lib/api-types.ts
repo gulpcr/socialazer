@@ -96,13 +96,6 @@ export interface SuggestionsResponse {
   data: ScriptSuggestions;
 }
 
-export interface VoiceOver {
-  text: string;
-  voiceId: string;
-  provider: string;
-  settings: Record<string, any>;
-}
-
 export interface VoicePreset {
   id: string;
   name: string;
@@ -120,10 +113,33 @@ export interface VoicePresetsResponse {
   };
 }
 
-export interface VoiceOverResponse {
+export interface VoiceOverRequest {
+  text: string;
+  voiceId: string;
+  provider: string;
+  settings?: Record<string, any>;
+}
+
+export interface VoiceOver {
   id: string;
   audioUrl: string;
   duration: number;
   format?: string;
   sampleRate?: number;
+}
+export interface VoiceOverResponse {
+  success: boolean;
+  message: string;
+  data: VoiceOver;
+}
+
+export interface ReelData {
+  status: "completed" | "failed";
+  videoUrl?: string;
+  completedAt?: string;
+}
+export interface GenerateReelResponse {
+  success: boolean;
+  message: string;
+  data: ReelData;
 }

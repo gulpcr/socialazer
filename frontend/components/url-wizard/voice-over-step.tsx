@@ -26,12 +26,13 @@ import type {
   VoicePreset,
   VoiceOver,
   VoiceOverResponse,
+  VoiceOverRequest,
 } from "@/lib/api-types";
 import { useVoiceOver } from "@/hooks/useVoiceOver";
 
 interface VoiceOverStepProps {
   script: VideoScript;
-  onComplete: (voice: VoicePreset, audioUrl: string) => void;
+  onComplete: (voice: VoicePreset, voiceRes: VoiceOver) => void;
   onBack: () => void;
 }
 
@@ -68,10 +69,10 @@ export function VoiceOverStep({
     clarity: 0.85,
   });
 
-  const [voiceover, setVoiceOver] = useState<VoiceOver | null>(null);
-  const [generatedResponse, setGeneratedResponse] =
-    useState<VoiceOverResponse | null>(null);
-  // const [isGenerating, setIsGenerating] = useState(false);
+  const [voiceover, setVoiceOver] = useState<VoiceOverRequest | null>(null);
+  const [generatedResponse, setGeneratedResponse] = useState<VoiceOver | null>(
+    null
+  );
   const [isGenerated, setIsGenerated] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -81,7 +82,7 @@ export function VoiceOverStep({
 
   const generateVoiceOver = async () => {
     if (!selectedVoice) return;
-    const payload: VoiceOver = {
+    const payload: VoiceOverRequest = {
       text: fullScript,
       voiceId: selectedVoice.id,
       provider,
@@ -90,7 +91,7 @@ export function VoiceOverStep({
     setVoiceOver(payload);
     try {
       const res = await voiceOverGeneration(payload);
-      setGeneratedResponse(res as VoiceOverResponse);
+      setGeneratedResponse(res as VoiceOver);
       setIsGenerated(true);
     } catch (e) {
       console.error("Voice over generation failed", e);
@@ -98,11 +99,8 @@ export function VoiceOverStep({
   };
 
   const handleUseVoice = () => {
-    if (selectedVoice) {
-      onComplete(
-        selectedVoice,
-        generatedResponse?.audioUrl ?? "/mock-audio.mp3"
-      );
+    if (selectedVoice && generatedResponse) {
+      onComplete(selectedVoice, generatedResponse);
     }
   };
 
