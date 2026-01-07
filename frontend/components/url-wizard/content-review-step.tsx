@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { ArrowLeft, ArrowRight, Upload, Check, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,16 @@ export function ContentReviewStep({
   onBack,
 }: ContentReviewStepProps) {
   const [data, setData] = useState<AnalysisResponse>(analysis);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const createdUrlsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    return () => {
+      // revoke any created object URLs on unmount
+      createdUrlsRef.current.forEach((u) => URL.revokeObjectURL(u));
+      createdUrlsRef.current = [];
+    };
+  }, []);
   // console.log("Review Step Data:", data);
   const updateHeadline = (index: number, included: boolean) => {
     const currentHeadlines = data.extractedContent?.headlines ?? [];
@@ -191,14 +201,45 @@ export function ContentReviewStep({
         <CardHeader>
           <CardTitle className="flex items-center justify-between text-lg">
             Extracted Images
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2 bg-transparent"
-            >
-              <Upload className="h-4 w-4" />
-              Upload More
-            </Button>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const files = e.target.files;
+                    if (!files || files.length === 0) return;
+                    const current = data.media?.images ?? [];
+                    const newImages = Array.from(files).map((file) => {
+                      const url = URL.createObjectURL(file);
+                      createdUrlsRef.current.push(url);
+                      return {
+                        url,
+                        alt: file.name,
+                        selected: true,
+                        relevance: "medium",
+                      } as any;
+                    });
+                    setData({
+                      ...data,
+                      media: { ...(data.media ?? {}), images: [...current, ...newImages] },
+                    });
+                    // reset input so same file can be uploaded again if needed
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 bg-transparent"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload className="h-4 w-4" />
+                  Upload More
+                </Button>
+              </div>
           </CardTitle>
         </CardHeader>
         <CardContent>
