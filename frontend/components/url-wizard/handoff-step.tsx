@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { VideoScript, VoicePreset } from "@/lib/api-types";
+import { useReelGeneration } from "@/hooks/useReelGeneration";
 
 interface HandoffStepProps {
   script: VideoScript;
@@ -28,7 +29,16 @@ export function HandoffStep({
 }: HandoffStepProps) {
   const totalAssets = script.scenes.length;
   const assetsReady = script.scenes.filter((s) => s.visuals?.url).length;
+  const { loading, error, reelGeneration } = useReelGeneration();
 
+  const handleGenerateReel = async () => {
+    try {
+      const reel = await reelGeneration();
+      console.log("Reel generated:", reel);
+    } catch (e) {
+      console.error("Error generating reel:", e);
+    }
+  };
   return (
     <div className="space-y-6">
       <div className="text-center">
@@ -128,9 +138,15 @@ export function HandoffStep({
           <ArrowLeft className="h-4 w-4" />
           Back
         </Button>
-        <Button asChild size="lg">
-          <Link href="/editor/new">Open in Editor</Link>
-        </Button>
+        {loading ? (
+          <Button size="lg" disabled>
+            Generating Reel...
+          </Button>
+        ) : (
+          <Button asChild size="lg" onClick={handleGenerateReel}>
+            <Link href="/editor/new">Generate Reel</Link>
+          </Button>
+        )}
       </div>
     </div>
   );

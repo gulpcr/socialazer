@@ -59,12 +59,13 @@ export function ScriptEditorStep({
   const addScene = () => {
     const newScene: ScriptScene = {
       id: `scene-${Date.now()}`,
+      order: 1,
       duration: 5,
       primaryText: "New Scene",
       textStyle: "body",
       voiceOver: "",
+      voiceOverPacing: "normal",
       visuals: { type: "image", url: "", animation: "none" },
-      order: 1,
       transition: "fade",
     };
     setData({ ...data, scenes: [...data.scenes, newScene] });
