@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, useRef } from "react"
 import Image from "next/image"
 import { Upload, ImageIcon, Video, Music, MoreHorizontal, Trash2, Download } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -8,10 +8,29 @@ import { Card } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { AppHeader } from "@/components/app-header"
-import { mockAssets } from "@/lib/mock-data"
-import type { Asset } from "@/lib/types"
+import { useAssets } from "@/hooks/useAssets"
+import { useToast } from "@/hooks/use-toast"
+import type { Asset } from "@/lib/api-types"
 
-function AssetItem({ asset }: { asset: Asset }) {
+function AssetItem({ asset, onDelete }: { asset: Asset; onDelete: (id: string) => void }) {
+  const { toast } = useToast()
+
+  const handleDelete = async () => {
+    try {
+      await onDelete(asset.id)
+      toast({
+        title: "Asset deleted",
+        description: "The asset has been successfully deleted.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete the asset.",
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <Card className="group relative overflow-hidden">
       <div className="aspect-square bg-muted">
@@ -20,7 +39,7 @@ function AssetItem({ asset }: { asset: Asset }) {
             <Music className="h-8 w-8 text-muted-foreground" />
           </div>
         ) : (
-          <Image src={asset.thumbnail || asset.url} alt={asset.name} fill className="object-cover" />
+          <Image src={asset.url} alt={asset.name || "Asset"} fill className="object-cover" />
         )}
         {asset.type === "video" && (
           <div className="absolute inset-0 flex items-center justify-center">
@@ -42,7 +61,7 @@ function AssetItem({ asset }: { asset: Asset }) {
               <Download className="mr-2 h-4 w-4" />
               Download
             </DropdownMenuItem>
-            <DropdownMenuItem className="text-destructive">
+            <DropdownMenuItem className="text-destructive" onClick={handleDelete}>
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
             </DropdownMenuItem>
@@ -50,8 +69,8 @@ function AssetItem({ asset }: { asset: Asset }) {
         </DropdownMenu>
       </div>
       <div className="p-2">
-        <p className="truncate text-xs font-medium">{asset.name}</p>
-        <p className="text-[10px] text-muted-foreground">{new Date(asset.createdAt).toLocaleDateString()}</p>
+        <p className="truncate text-xs font-medium">{asset.name || "Unnamed"}</p>
+        <p className="text-[10px] text-muted-foreground">{asset.createdAt ? new Date(asset.createdAt).toLocaleDateString() : ""}</p>
       </div>
     </Card>
   )
@@ -59,8 +78,58 @@ function AssetItem({ asset }: { asset: Asset }) {
 
 export default function AssetsPage() {
   const [activeTab, setActiveTab] = useState("all")
+  const { loading, error, upload, list, remove } = useAssets()
+  const { toast } = useToast()
+  const [assets, setAssets] = useState<Asset[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const filteredAssets = activeTab === "all" ? mockAssets : mockAssets.filter((a) => a.type === activeTab)
+  useEffect(() => {
+    loadAssets()
+  }, [activeTab])
+
+  const loadAssets = async () => {
+    try {
+      const type = activeTab === "all" ? undefined : activeTab
+      const result = await list(type)
+      setAssets(result.assets)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load assets.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files) return
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const type = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : "image"
+      try {
+        await upload(file, type as "image" | "video" | "audio", file.name)
+        toast({
+          title: "Asset uploaded",
+          description: `${file.name} has been uploaded successfully.`,
+        })
+        loadAssets()
+      } catch (error) {
+        toast({
+          title: "Upload failed",
+          description: `Failed to upload ${file.name}.`,
+          variant: "destructive",
+        })
+      }
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    await remove(id)
+    loadAssets()
+  }
+
+  const filteredAssets = activeTab === "all" ? assets : assets.filter((a) => a.type === activeTab)
 
   return (
     <>
@@ -72,10 +141,18 @@ export default function AssetsPage() {
               <h2 className="text-2xl font-semibold tracking-tight">Asset Library</h2>
               <p className="text-muted-foreground">Manage your images, videos, and audio files</p>
             </div>
-            <Button className="gap-2">
+            <Button className="gap-2" onClick={() => fileInputRef.current?.click()}>
               <Upload className="h-4 w-4" />
               Upload
             </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,video/*,audio/*"
+              className="hidden"
+              onChange={(e) => handleUpload(e.target.files)}
+            />
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -98,7 +175,7 @@ export default function AssetsPage() {
             <TabsContent value={activeTab} className="mt-4">
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8">
                 {filteredAssets.map((asset) => (
-                  <AssetItem key={asset.id} asset={asset} />
+                  <AssetItem key={asset.id} asset={asset} onDelete={handleDelete} />
                 ))}
               </div>
               {filteredAssets.length === 0 && (

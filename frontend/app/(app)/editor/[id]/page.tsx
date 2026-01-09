@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useCallback } from "react"
+import { useState, useCallback, useEffect } from "react"
 import Link from "next/link"
 import { ArrowLeft, Save, Download, Undo, Redo, Eye, Command, Share2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -14,106 +14,10 @@ import { AIActionsPanel } from "@/components/editor/ai-actions-panel"
 import { CommandPalette } from "@/components/editor/command-palette"
 import { ShortcutsModal } from "@/components/editor/shortcuts-modal"
 import { useKeyboardShortcuts } from "@/components/editor/keyboard-shortcuts"
+import { useProjects } from "@/hooks/useProjects"
+import { useToast } from "@/hooks/use-toast"
 import type { Layer, LayerType } from "@/lib/editor-types"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-
-const initialLayers: Layer[] = [
-  {
-    id: "bg-video",
-    name: "Background Video",
-    type: "video",
-    visible: true,
-    locked: false,
-    content: "/summer-fashion-video.png",
-    position: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
-    style: { opacity: 1 },
-    timing: { startTime: 0, endTime: 15, duration: 15 },
-  },
-  {
-    id: "product-img",
-    name: "Product Image",
-    type: "image",
-    visible: true,
-    locked: false,
-    content: "/summer-dress-product.png",
-    position: { x: 30, y: 30, width: 40, height: 35, rotation: 0 },
-    style: { opacity: 1 },
-    timing: { startTime: 2, endTime: 12, duration: 10 },
-  },
-  {
-    id: "logo-img",
-    name: "Brand Logo",
-    type: "image",
-    visible: true,
-    locked: false,
-    content: "/abstract-fashion-logo.png",
-    position: { x: 35, y: 88, width: 30, height: 8, rotation: 0 },
-    style: { opacity: 0.9 },
-    timing: { startTime: 0, endTime: 15, duration: 15 },
-  },
-  {
-    id: "1",
-    name: "Headline",
-    type: "text",
-    visible: true,
-    locked: false,
-    content: "Summer Sale",
-    position: { x: 5, y: 8, width: 90, height: 15, rotation: 0 },
-    style: { fontSize: 36, fontWeight: "bold", color: "#FFFFFF", textAlign: "center", opacity: 1 },
-    timing: { startTime: 0, endTime: 15, duration: 15 },
-  },
-  {
-    id: "2",
-    name: "Subtitle",
-    type: "text",
-    visible: true,
-    locked: false,
-    content: "Up to 50% off everything",
-    position: { x: 5, y: 78, width: 90, height: 10, rotation: 0 },
-    style: { fontSize: 18, fontWeight: "normal", color: "#FFFFFF", textAlign: "center", opacity: 0.9 },
-    timing: { startTime: 0.5, endTime: 15, duration: 14.5 },
-  },
-  {
-    id: "3",
-    name: "CTA Button",
-    type: "text",
-    visible: true,
-    locked: false,
-    content: "Shop Now",
-    position: { x: 25, y: 65, width: 50, height: 10, rotation: 0 },
-    style: {
-      fontSize: 14,
-      fontWeight: "600",
-      color: "#000000",
-      backgroundColor: "#FFFFFF",
-      textAlign: "center",
-      opacity: 1,
-    },
-    timing: { startTime: 1, endTime: 15, duration: 14 },
-  },
-  {
-    id: "bg-music",
-    name: "Background Music",
-    type: "audio",
-    visible: true,
-    locked: false,
-    content: "upbeat-summer-track.mp3",
-    position: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
-    style: { opacity: 1 },
-    timing: { startTime: 0, endTime: 15, duration: 15 },
-  },
-  {
-    id: "voiceover",
-    name: "Voice Over",
-    type: "audio",
-    visible: true,
-    locked: false,
-    content: "summer-sale-voiceover.mp3",
-    position: { x: 0, y: 0, width: 100, height: 100, rotation: 0 },
-    style: { opacity: 0.8 },
-    timing: { startTime: 1, endTime: 10, duration: 9 },
-  },
-]
 
 const mockScenes = [
   { id: "1", name: "Intro", thumbnail: "", duration: 3 },
@@ -122,16 +26,54 @@ const mockScenes = [
   { id: "4", name: "CTA", thumbnail: "", duration: 3 },
 ]
 
-export default function EditorPage() {
-  const [layers, setLayers] = useState<Layer[]>(initialLayers)
+export default function EditorPage({ params }: { params: { id: string } }) {
+  const { fetch, updateLayers, add, remove, reorder } = useProjects()
+  const { toast } = useToast()
+  const [layers, setLayers] = useState<Layer[]>([])
   const [selectedLayerId, setSelectedLayerId] = useState<string | null>(null)
   const [aspectRatio, setAspectRatio] = useState<"9:16" | "1:1" | "16:9">("9:16")
   const [exportOpen, setExportOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [scenes, setScenes] = useState(mockScenes)
+  const [scenes, setScenes] = useState<Array<{ id: string; name: string; thumbnail: string; duration: number }>>([])
   const [activeSceneId, setActiveSceneId] = useState("1")
+  const [projectName, setProjectName] = useState("")
+
+  useEffect(() => {
+    loadProject()
+  }, [params.id])
+
+  const loadProject = async () => {
+    try {
+      const project = await fetch(params.id)
+      setProjectName(project.name)
+      setLayers(project.layers || [])
+      setAspectRatio(project.config?.aspectRatio || "9:16")
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to load project.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const saveProject = async () => {
+    try {
+      await updateLayers(params.id, layers)
+      toast({
+        title: "Project saved",
+        description: "Your changes have been saved successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to save project.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const selectedLayer = layers.find((l) => l.id === selectedLayerId) || null
 
@@ -140,13 +82,23 @@ export default function EditorPage() {
   }, [])
 
   const handleLayerDelete = useCallback(
-    (layerId: string) => {
+    async (layerId: string) => {
       setLayers((prev) => prev.filter((layer) => layer.id !== layerId))
       if (selectedLayerId === layerId) {
         setSelectedLayerId(null)
       }
+
+      try {
+        await remove(params.id, layerId)
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to delete layer.",
+          variant: "destructive",
+        })
+      }
     },
-    [selectedLayerId],
+    [selectedLayerId, params.id, remove, toast],
   )
 
   const handleLayerDuplicate = useCallback(
@@ -166,7 +118,7 @@ export default function EditorPage() {
     [layers],
   )
 
-  const handleLayerAdd = useCallback((type: LayerType) => {
+  const handleLayerAdd = useCallback(async (type: LayerType) => {
     const newLayer: Layer = {
       id: String(Date.now()),
       name: `New ${type.charAt(0).toUpperCase() + type.slice(1)}`,
@@ -186,16 +138,40 @@ export default function EditorPage() {
     }
     setLayers((prev) => [...prev, newLayer])
     setSelectedLayerId(newLayer.id)
-  }, [])
 
-  const handleLayerReorder = useCallback((fromIndex: number, toIndex: number) => {
+    try {
+      await add(params.id, newLayer)
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to add layer.",
+        variant: "destructive",
+      })
+    }
+  }, [params.id, add, toast])
+
+  const handleLayerReorder = useCallback(async (fromIndex: number, toIndex: number) => {
     setLayers((prev) => {
       const newLayers = [...prev]
       const [removed] = newLayers.splice(fromIndex, 1)
       newLayers.splice(toIndex, 0, removed)
       return newLayers
     })
-  }, [])
+
+    const newLayers = [...layers]
+    const [removed] = newLayers.splice(fromIndex, 1)
+    newLayers.splice(toIndex, 0, removed)
+
+    try {
+      await reorder(params.id, newLayers.map(l => l.id))
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to reorder layers.",
+        variant: "destructive",
+      })
+    }
+  }, [layers, params.id, reorder, toast])
 
   const handleLayerOrderChange = useCallback((layerId: string, direction: "up" | "down") => {
     setLayers((prev) => {
@@ -214,7 +190,7 @@ export default function EditorPage() {
     (action: string) => {
       switch (action) {
         case "save":
-          console.log("[v0] Project saved")
+          saveProject()
           break
         case "export":
           setExportOpen(true)
@@ -339,7 +315,7 @@ export default function EditorPage() {
             <div className="h-4 w-px bg-border" />
 
             <div>
-              <h1 className="text-sm font-medium leading-none">Summer Sale Campaign</h1>
+              <h1 className="text-sm font-medium leading-none">{projectName || "Untitled Project"}</h1>
               <p className="text-[11px] text-muted-foreground mt-0.5">Draft - Edited 2 min ago</p>
             </div>
           </div>
