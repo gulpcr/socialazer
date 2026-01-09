@@ -49,6 +49,14 @@ export const api = {
       signal: opts?.signal,
     }),
 
+  patch: async <T = any, B = any>(path: string, body?: B, opts?: ReqOpts) =>
+    request<T>(path, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(opts?.headers || {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: opts?.signal,
+    }),
+
   delete: async <T = any>(path: string, opts?: ReqOpts) =>
     request<T>(path, {
       method: "DELETE",

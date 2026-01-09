@@ -183,3 +183,51 @@ export interface TemplateItem {
   industry?: string;
 }
 
+export interface UpdateSceneRequest {
+  id: string;
+  text?: string;
+  voiceOver?: string;
+  duration?: number;
+  visuals?: {
+    url?: string;
+    animation?: string;
+  };
+  transition?: string;
+}
+
+export interface AddSceneRequest {
+  position?: number;
+  text?: string;
+  voiceOver?: string;
+  duration: number;
+  visuals: {
+    type: string;
+    url: string;
+    animation?: string;
+  };
+  transition?: string;
+}
+
+export interface UpdateScriptRequest {
+  scenes?: ScriptScene[];
+  updateScenes?: UpdateSceneRequest[];
+  addScenes?: AddSceneRequest[];
+  removeScenes?: string[];
+  reorderScenes?: string[];
+}
+
+export interface UpdatedScript {
+  id: string;
+  scenes: ScriptScene[];
+  totalDuration: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateScriptResponse {
+  success: boolean;
+  message: string;
+  operations?: string[];
+  data: UpdatedScript;
+}
+
