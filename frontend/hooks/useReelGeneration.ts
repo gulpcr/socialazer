@@ -1,9 +1,6 @@
 import { useCallback, useState } from "react";
-import { generateVoiceOver, getVoicePresets } from "../lib/services/voice";
 import type { ReelData } from "../lib/api-types";
-import { VoicePreset } from "@/lib/types";
-import { StringDecoder } from "string_decoder";
-import { generateReel } from "@/lib/services/reel";
+import { generateReel } from "@/lib/services/index";
 
 export function useReelGeneration() {
   const [loading, setLoading] = useState(false);

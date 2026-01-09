@@ -3,7 +3,7 @@ import {
   analyzeUrl,
   generateScript,
   getSuggestions,
-} from "../lib/services/analysis";
+} from "../lib/services/index";
 import type {
   AnalysisResponse,
   VideoScriptResponse as GenerateScriptResponse,

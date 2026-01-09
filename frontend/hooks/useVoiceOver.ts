@@ -1,15 +1,9 @@
 import { useCallback, useState } from "react";
-import { generateVoiceOver, getVoicePresets } from "../lib/services/voice";
+import { generateVoiceOver, getVoicePresets } from "../lib/services/index";
 import type {
-  AnalysisResponse,
-  VideoScriptResponse as GenerateScriptResponse,
-  SuggestionsResponse,
-  VoiceOverResponse,
-  VoiceOver,
   VoiceOverRequest,
-  VoicePresetsResponse,
+  VoicePreset
 } from "../lib/api-types";
-import { VoicePreset } from "@/lib/types";
 
 export function useVoiceOver() {
   const [generating, setGenerating] = useState(false);

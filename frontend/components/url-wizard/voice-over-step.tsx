@@ -42,8 +42,13 @@ export function VoiceOverStep({
   onComplete,
   onBack,
 }: VoiceOverStepProps) {
+  // Cleanup preview audio on unmount
   useEffect(() => {
-    loadVoicePresets();
+    return () => {
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+    };
   }, []);
 
   const { loading, generating, error, getVoiceOverPresets, voiceOverGeneration } =
@@ -57,6 +62,11 @@ export function VoiceOverStep({
       console.error("Failed to load voice presets", e);
     }
   };
+
+  // Load voice presets on mount
+  useEffect(() => {
+    loadVoicePresets();
+  }, []);
 
   const [voices, setVoices] = useState<VoicePreset[]>([]);
   const [provider, setProvider] = useState<"elevenlabs" | "google">(
@@ -81,6 +91,8 @@ export function VoiceOverStep({
   const [waveform, setWaveform] = useState<number[] | null>(null);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [playingPreviewId, setPlayingPreviewId] = useState<string | null>(null);
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const filteredVoices = voices.filter((v) => v.provider === provider);
 
@@ -236,6 +248,29 @@ export function VoiceOverStep({
     }
   };
 
+  const handlePreview = (voice: VoicePreset) => {
+    if (!voice.previewUrl) return;
+
+    if (playingPreviewId === voice.id) {
+      // Stop
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+        previewAudioRef.current.currentTime = 0;
+      }
+      setPlayingPreviewId(null);
+    } else {
+      // Play new
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause();
+      }
+      const audio = new Audio(voice.previewUrl);
+      audio.onended = () => setPlayingPreviewId(null);
+      audio.play().catch(console.error);
+      previewAudioRef.current = audio;
+      setPlayingPreviewId(voice.id);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="text-center">
@@ -276,11 +311,19 @@ export function VoiceOverStep({
               </div>
             )}
             {filteredVoices.map((voice) => (
-              <button
+              <div
                 key={voice.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => setSelectedVoice(voice)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setSelectedVoice(voice);
+                  }
+                }}
                 className={cn(
-                  "flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors",
+                  "flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors cursor-pointer",
                   selectedVoice?.id === voice.id
                     ? "border-primary bg-primary/5"
                     : "border-border hover:bg-muted/50"
@@ -292,13 +335,20 @@ export function VoiceOverStep({
                     {voice.gender} • {voice.language}
                   </p>
                 </div>
-                <Button asChild size="sm" variant="ghost" className="gap-1">
-                  <span>
-                    <Play className="h-3 w-3" />
-                    Preview
-                  </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="gap-1"
+                  disabled={!voice.previewUrl}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handlePreview(voice);
+                  }}
+                >
+                  {playingPreviewId === voice.id ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                  {playingPreviewId === voice.id ? "Stop" : "Preview"}
                 </Button>
-              </button>
+              </div>
             ))}
           </CardContent>
         </Card>

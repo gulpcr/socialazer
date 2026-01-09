@@ -143,3 +143,43 @@ export interface GenerateReelResponse {
   message: string;
   data: ReelData;
 }
+
+export interface Project {
+  id: string;
+  name: string;
+  status?: string;
+  createdAt?: string;
+  config?: Record<string, any>;
+  layers?: any[];
+  scenes?: any[];
+}
+
+export interface Asset {
+  id: string;
+  url: string;
+  type: string;
+  name?: string;
+  size?: number;
+  dimensions?: { width: number; height: number };
+  createdAt?: string;
+}
+
+export interface RenderJob {
+  jobId: string;
+  status: string;
+  progress?: number;
+  currentStep?: string;
+  outputUrl?: string | null;
+  error?: string | null;
+}
+
+export interface TemplateItem {
+  id: string;
+  name: string;
+  thumbnail?: string;
+  platform?: string;
+  aspectRatio?: string;
+  duration?: number;
+  industry?: string;
+}
+
